@@ -1,0 +1,24 @@
+# Go binaries and files
+dockerhunter
+test_bin
+*.exe
+*.test
+*.out
+
+# Python virtual environments and caches
+venv/
+test_venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local Hugging Face models cache
+validator/models/
+models/
+
+# System / logs / temporary files
+.system_generated/
+*.log
+pkg_image.txt

@@ -1,0 +1,18 @@
+# AI Validator Configuration
+
+server:
+  host: "0.0.0.0"
+  port: 9001
+
+huggingface:
+  # HuggingFace API Token (optional, used for gated models)
+  token: ""
+  
+  model:
+    name: "bigcode/starpii"
+    cache_dir: "/app/models"
+    use_auth_token: true
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
