@@ -4,11 +4,57 @@ import (
 	"regexp"
 	"strings"
 
-	"dockerhunter/pkg/types"
+	"github.com/DarkSar7/DockerHunter/pkg/config"
+	"github.com/DarkSar7/DockerHunter/pkg/types"
 )
 
 // GeneralPattern is the generic regex chosen to match secret assignments.
 var GeneralPattern = regexp.MustCompile(`(?i)(\"|')?([a-z0-9_-]+)?((key|pass|user|username|pwd|credentials|auth|password|pwd|Ldap|Jenkins|ftp|dotfiles|JDBC|config|connectionstring|ssh|creds|secret|cred|access|Bearer|token|passwd|api|admin|private|bash|aws|s3|cookie)){1,}([a-z0-9 _[:space:]-]+)?(\"|')?(=>|=|:|,|\\+)(( )?(\"|'|return|{))?([a-z0-9 _[:space:]-=\.])+(( )?(\"|'|return|{))`)
+
+// CompiledRules holds pre-compiled regex patterns for each signature rule.
+type CompiledRules struct {
+	Signatures []CompiledSignature
+}
+
+type CompiledSignature struct {
+	Name string
+	Re   *regexp.Regexp
+}
+
+func CompileRules(rules *config.RegexRules) *CompiledRules {
+	cr := &CompiledRules{
+		Signatures: []CompiledSignature{},
+	}
+	if rules == nil {
+		return cr
+	}
+	for _, sig := range rules.Signatures {
+		// Clean pattern value if multiline string block format
+		patternStr := strings.TrimSpace(sig.Pattern.Value)
+		re, err := regexp.Compile(patternStr)
+		if err == nil {
+			cr.Signatures = append(cr.Signatures, CompiledSignature{
+				Name: sig.Pattern.Name,
+				Re:   re,
+			})
+		}
+	}
+	return cr
+}
+
+// MatchRules checks if a candidate matches any signature validation rule.
+func MatchRules(variable, value string, cr *CompiledRules) bool {
+	if cr == nil || len(cr.Signatures) == 0 {
+		return true // If no rules loaded, pass it through
+	}
+
+	for _, sig := range cr.Signatures {
+		if sig.Re.MatchString(value) {
+			return true
+		}
+	}
+	return false
+}
 
 // ExtractCandidates scans a context string (a line of code) and extracts secret candidates.
 func ExtractCandidates(image, tag, file string, lineNum int, context string) []types.Candidate {
@@ -19,7 +65,6 @@ func ExtractCandidates(image, tag, file string, lineNum int, context string) []t
 
 	var candidates []types.Candidate
 	for _, locs := range locsList {
-		// Ensure we have at least 26 indices (13 groups) to prevent out-of-range panics
 		if len(locs) < 26 {
 			continue
 		}
@@ -32,11 +77,9 @@ func ExtractCandidates(image, tag, file string, lineNum int, context string) []t
 			continue
 		}
 
-		// Extract Variable from left of operator
 		rawVar := context[start:opStart]
 		variable := strings.Trim(rawVar, "\"' \t")
 
-		// Extract Value from right of operator
 		var rawVal string
 		if closeStart != -1 && closeStart > opEnd {
 			rawVal = context[opEnd:closeStart]
@@ -45,7 +88,6 @@ func ExtractCandidates(image, tag, file string, lineNum int, context string) []t
 		}
 		value := strings.Trim(rawVal, "\"' \t")
 
-		// Skip empty or trivial values
 		if value == "" {
 			continue
 		}

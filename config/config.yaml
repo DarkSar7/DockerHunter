@@ -1,0 +1,17 @@
+# DockerHunter Configuration
+
+validator:
+  model_name: "bigcode/starpii"
+  cache_dir: "~/.dockerhunter/models"
+  # Path to the virtualenv python binary
+  executable_path: "~/.dockerhunter/venv/bin/python"
+  huggingface_token: ""
+
+pipeline:
+  batch_size: 100
+  batch_timeout_ms: 200
+  worker_count: 8
+
+scanner:
+  regex_rules_path: "~/.dockerhunter/regex_rules.yaml"
+  output_format: "text"

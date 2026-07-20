@@ -1,4 +1,4 @@
-module dockerhunter
+module github.com/DarkSar7/DockerHunter
 
 go 1.26.3
 
@@ -6,6 +6,7 @@ require (
 	github.com/anchore/stereoscope v0.2.2
 	github.com/google/go-containerregistry v0.21.7
 	github.com/spf13/cobra v1.10.2
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

@@ -1,18 +1,96 @@
-import uvicorn
+import sys
+import os
+import json
 
-from app.app import app
-from app.config import ensure_default_config, load_config
+# Force local resolution of app modules
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
+from app.ner import load_model
+from app.config import ensure_default_config
+
+def truncate_context(context, value, max_len=100):
+	if not context:
+		return value
+	if len(context) <= max_len:
+		return context
+	
+	idx = context.find(value)
+	if idx == -1:
+		return context[:max_len]
+		
+	start = max(0, idx - (max_len - len(value)) // 2)
+	end = min(len(context), start + max_len)
+	return context[start:end]
+
+def main():
+	ensure_default_config()
+	print("🔄 Loading StarPII model pipeline...", file=sys.stderr)
+	model_pipeline = load_model()
+	if model_pipeline is not None:
+		print("✅ StarPII model pipeline loaded successfully", file=sys.stderr)
+	else:
+		print("❌ Failed to load StarPII model pipeline", file=sys.stderr)
+		sys.exit(1)
+
+	print("Validator ready to receive batches on stdin.", file=sys.stderr)
+
+	while True:
+		line = sys.stdin.readline()
+		if not line:
+			break # EOF received
+		
+		line = line.strip()
+		if not line:
+			continue
+		
+		try:
+			req = json.loads(line)
+			candidates = req.get("candidates", [])
+			if not candidates:
+				print(json.dumps({"results": []}))
+				sys.stdout.flush()
+				continue
+			
+			# Construct truncated texts for NER inference
+			texts = []
+			for c in candidates:
+				ctx = c.get("context", "")
+				val = c.get("value", "")
+				truncated = truncate_context(ctx, val, max_len=100)
+				texts.append(truncated if truncated.strip() else val)
+
+			# Perform pipeline inference
+			pipeline_results = model_pipeline(texts)
+
+			if len(texts) == 1 and not isinstance(pipeline_results, list):
+				pipeline_results = [pipeline_results]
+
+			results = []
+			for candidate, model_res in zip(candidates, pipeline_results):
+				detected_words = []
+				if isinstance(model_res, list):
+					detected_words = [item["word"].strip().lower() for item in model_res if "word" in item]
+				
+				cand_val_lower = candidate.get("value", "").strip().lower()
+				is_valid = False
+				
+				for word in detected_words:
+					if word in cand_val_lower or cand_val_lower in word:
+						is_valid = True
+						break
+				
+				results.append({
+					"candidate": candidate,
+					"valid": is_valid
+				})
+
+			print(json.dumps({"results": results}))
+			sys.stdout.flush()
+		except Exception as e:
+			print(f"Error processing batch: {e}", file=sys.stderr)
+			# Send back empty results so Go pipeline doesn't block
+			print(json.dumps({"results": []}))
+			sys.stdout.flush()
 
 if __name__ == "__main__":
-    ensure_default_config()
-    config = load_config()
-    server_config = config.get("server", {"host": "0.0.0.0", "port": 8000})
-
-    print(f"Starting server on {server_config['host']}:{server_config['port']}")
-    uvicorn.run(
-        "main:app",
-        host=server_config["host"],
-        port=server_config["port"],
-        reload=False,
-    )
+	main()

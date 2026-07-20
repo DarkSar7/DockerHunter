@@ -1,86 +1,87 @@
 import unittest
 import sys
 import os
+import json
 from unittest.mock import patch, MagicMock
-
-# Mock transformers module to avoid importing it during test setup
-sys.modules['transformers'] = MagicMock()
+from io import StringIO
 
 # Force local resolution by inserting current directory into sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
+# Mock transformers module to avoid loading it during imports
+sys.modules['transformers'] = MagicMock()
+
 import app.ner
+from main import main, truncate_context
 
-# We mock the load_model function before importing the app to prevent it from loading transformers/torch
-with patch('app.ner.load_model', return_value=MagicMock()):
-    from fastapi.testclient import TestClient
-    from app.app import app
+class TestValidatorStdinStdout(unittest.TestCase):
+	def test_truncate_context(self):
+		# Value is found and centered
+		ctx = "prefix_data_aws_key_value_is_here_suffix_data"
+		val = "aws_key_value"
+		truncated = truncate_context(ctx, val, max_len=30)
+		self.assertTrue(len(truncated) <= 30)
+		self.assertTrue(val in truncated)
 
-class TestValidatorAPI(unittest.TestCase):
-    def setUp(self):
-        self.client = TestClient(app)
+		# Context is short enough
+		short_ctx = "short_context"
+		self.assertEqual(truncate_context(short_ctx, "val", max_len=100), short_ctx)
 
-    def test_root_endpoint(self):
-        response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"message": "DockerHunter AI Validator Service is running"})
+	@patch('main.load_model')
+	def test_main_loop(self, mock_load_model):
+		# Mock pipeline returns detected words: word "supersecret" in the first context
+		mock_pipeline = MagicMock()
+		mock_pipeline.side_effect = lambda texts: [
+			[{"word": "supersecret", "entity_group": "secret", "score": 0.99}], # First text
+			[] # Second text
+		]
+		mock_load_model.return_value = mock_pipeline
 
-    def test_health_endpoint(self):
-        # Test healthy status when model is mock-loaded
-        response = self.client.get("/health")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"status": "healthy", "model_loaded": True})
+		# Set up mock stdin/stdout
+		input_data = {
+			"candidates": [
+				{
+					"image": "lyft/clutch",
+					"tag": "sha-1",
+					"file": "/app/config.py",
+					"line": 42,
+					"variable": "API_KEY",
+					"value": "supersecret",
+					"context": "api_key = 'supersecret'"
+				},
+				{
+					"image": "lyft/clutch",
+					"tag": "sha-1",
+					"file": "/app/db.go",
+					"line": 12,
+					"variable": "DB_PASS",
+					"value": "placeholder",
+					"context": "db_pass = 'placeholder'"
+				}
+			]
+		}
+		
+		# We send the request line, then an empty string to simulate EOF
+		mock_stdin = StringIO(json.dumps(input_data) + "\n\n")
+		mock_stdout = StringIO()
 
-    def test_validate_batch_endpoint(self):
-        # We will mock the model pipeline behavior directly inside the validation endpoint
-        mock_pipeline = MagicMock()
-        # Mock pipeline returning detected entities: word "supersecret" in the first context
-        mock_pipeline.side_effect = lambda texts: [
-            [{"word": "supersecret", "entity_group": "secret", "score": 0.99}], # First text
-            [] # Second text
-        ]
-        
-        # Build router with mock pipeline and attach to a new test app
-        from app.routes import build_router
-        from fastapi import FastAPI
-        test_app_instance = FastAPI()
-        test_app_instance.include_router(build_router(mock_pipeline))
-        test_app = TestClient(test_app_instance)
+		with patch('sys.stdin', mock_stdin), patch('sys.stdout', mock_stdout):
+			main()
 
-        payload = {
-            "candidates": [
-                {
-                    "image": "lyft/clutch",
-                    "tag": "sha-1",
-                    "file": "/app/config.py",
-                    "line": 42,
-                    "variable": "API_KEY",
-                    "value": "supersecret",
-                    "context": "api_key = 'supersecret'"
-                },
-                {
-                    "image": "lyft/clutch",
-                    "tag": "sha-1",
-                    "file": "/app/db.go",
-                    "line": 12,
-                    "variable": "DB_PASS",
-                    "value": "placeholder",
-                    "context": "db_pass = 'placeholder'"
-                }
-            ]
-        }
-        
-        response = test_app.post("/validate", json=payload)
-        self.assertEqual(response.status_code, 200)
-        results = response.json().get("results", [])
-        self.assertEqual(len(results), 2)
-        
-        # First candidate is valid (secret detected)
-        self.assertTrue(results[0]["valid"])
-        self.assertEqual(results[0]["candidate"]["value"], "supersecret")
-        
-        # Second candidate is invalid (no secret detected)
-        self.assertFalse(results[1]["valid"])
+		# Parse output from mock_stdout
+		output_lines = mock_stdout.getvalue().strip().split("\n")
+		self.assertEqual(len(output_lines), 1)
+
+		resp = json.loads(output_lines[0])
+		results = resp.get("results", [])
+		self.assertEqual(len(results), 2)
+		
+		# First candidate should be valid
+		self.assertTrue(results[0]["valid"])
+		self.assertEqual(results[0]["candidate"]["value"], "supersecret")
+		
+		# Second candidate should be invalid
+		self.assertFalse(results[1]["valid"])
 
 if __name__ == '__main__':
-    unittest.main()
+	unittest.main()

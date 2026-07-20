@@ -1,0 +1,1126 @@
+# Secret Scanner Configuration File
+signatures:
+  - pattern:
+      sensitive: true
+      name: AWS Access Key ID Value
+      value: (A3T[A-Z0-9]|AKIA|AGPA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}
+
+  - pattern:
+      sensitive: false
+      name: Generic Token
+      value: >-
+        (?mi)(\"|')?(access|api|secret)?[_-]?(token|secret|key)(\"|')?( )?(=|:)(( )?)+(\"|')?[\w\-\ ]+(\"|')?
+
+  - pattern:
+      sensitive: false
+      name: Generic Password
+      value: >-
+        (?mi)(\"|')?(user|admin|portal|dashboard)?[_-]?(password)(\"|')?( )?(=|:)(( )?)+(\"|')?[\w\-]+(\"|')?
+
+  - pattern:
+      sensitive: true
+      name: AWS ARN
+      value: arn:aws:[a-z0-9-]+:[a-z]{2}-[a-z]+-[0-9]+:[0-9]+:.+
+
+  - pattern:
+      sensitive: true
+      name: AWS AppSync GraphQL Key
+      value: da2-[a-z0-9]{26}
+
+  - pattern:
+      sensitive: true
+      name: GitHub
+      value: '[gG][iI][tT][hH][uU][bB].*[''|"][0-9a-zA-Z]{35,40}[''|"]'
+
+  - pattern:
+      sensitive: true
+      name: Github App Token
+      value: (ghu|ghs)_[0-9a-zA-Z]{36}
+
+  - pattern:
+      sensitive: true
+      name: Github OAuth Access Token
+      value: gho_[0-9a-zA-Z]{36}
+
+  - pattern:
+      sensitive: true
+      name: Github Personal Access Token
+      value: ghp_[0-9a-zA-Z]{36}
+
+  - pattern:
+      sensitive: true
+      name: Github Refresh Token
+      value: ghr_[0-9a-zA-Z]{76}
+
+  - pattern:
+      sensitive: true
+      name: Github_old
+      value: (?:github)[^\.].{0,40}[ =:'"]+([a-f0-9]{40})\b
+
+  - pattern:
+      sensitive: true
+      name: Githubapp - 2
+      value: >-
+        (?:github).{0,40}(-----BEGIN RSA PRIVATE KEY-----\s[A-Za-z0-9+\/\s]*\s-----END RSA PRIVATE KEY-----)
+
+  - pattern:
+      sensitive: true
+      name: github_access_token - 1
+      value: github[_-]?access[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_access_token - 2
+      value: '[a-zA-Z0-9_-]*:[a-zA-Z0-9_-]+@github.com*'
+
+  - pattern:
+      sensitive: true
+      name: github_api_key
+      value: github[_-]?api[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_api_token
+      value: github[_-]?api[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_auth
+      value: github[_-]?auth(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_auth_token
+      value: github[_-]?auth[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_client_secret
+      value: github[_-]?client[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_deploy_hb_doc_pass
+      value: github[_-]?deploy[_-]?hb[_-]?doc[_-]?pass(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_deployment_token
+      value: github[_-]?deployment[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_hunter_token
+      value: github[_-]?hunter[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_hunter_username
+      value: github[_-]?hunter[_-]?username(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_key
+      value: github[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_oauth
+      value: github[_-]?oauth(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_oauth_token
+      value: github[_-]?oauth[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_password
+      value: github[_-]?password(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_pwd
+      value: github[_-]?pwd(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_release_token
+      value: github[_-]?release[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_repo
+      value: github[_-]?repo(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_token
+      value: github[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: github_tokens
+      value: github[_-]?tokens(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: Mapbox - 2
+      value: \b(sk\.[a-zA-Z-0-9\.]{80,240})\b
+
+  - pattern:
+      sensitive: true
+      name: mapbox_access_token
+      value: mapbox[_-]?access[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: mapbox_api_token
+      value: mapbox[_-]?api[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: mapbox_aws_access_key_id
+      value: mapbox[_-]?aws[_-]?access[_-]?key[_-]?id(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: mapbox_aws_secret_access_key
+      value: mapbox[_-]?aws[_-]?secret[_-]?access[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: mapboxaccesstoken
+      value: mapboxaccesstoken(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: dropbox_oauth_bearer
+      value: dropbox[_-]?oauth[_-]?bearer(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: env_secret
+      value: env[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: env_secret_access_key
+      value: env[_-]?secret[_-]?access[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: env_sonatype_password
+      value: env[_-]?sonatype[_-]?password(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: eureka_awssecretkey
+      value: eureka[_-]?awssecretkey(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: exp_password
+      value: exp[_-]?password(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: facebook_access_token
+      value: (EAACEdEose0cBA[0-9A-Za-z]+)
+
+  - pattern:
+      sensitive: true
+      name: firebase_api_json
+      value: firebase[_-]?api[_-]?json(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: firebase_api_token
+      value: firebase[_-]?api[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: firebase_key
+      value: firebase[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: firebase_project_develop
+      value: firebase[_-]?project[_-]?develop(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: firebase_token
+      value: firebase[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: firefox_secret
+      value: firefox[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: flask_secret_key
+      value: flask[_-]?secret[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: flickr_api_key
+      value: flickr[_-]?api[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: flickr_api_secret
+      value: flickr[_-]?api[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: fossa_api_key
+      value: fossa[_-]?api[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: ftp_host
+      value: ftp[_-]?host(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: ftp_login
+      value: ftp[_-]?login(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: ftp_password
+      value: ftp[_-]?password(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: ftp_pw
+      value: ftp[_-]?pw(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: ftp_user
+      value: ftp[_-]?user(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: Zendeskapi - 1
+      value: \b([a-zA-Z-0-9]{3,16}\.zendesk\.com)\b
+
+  - pattern:
+      sensitive: true
+      name: Zapier Webhook
+      value: >-
+        https://(?:www.)?hooks\.zapier\.com/hooks/catch/[A-Za-z0-9]+/[A-Za-z0-9]+/
+
+  - pattern:
+      sensitive: true
+      name: Zapierwebhook
+      value: (https:\/\/hooks.zapier.com\/hooks\/catch\/[A-Za-z0-9\/]{16})
+
+  - pattern:
+      sensitive: true
+      name: Twitter Access Token
+      value: '[tT][wW][iI][tT][tT][eE][rR].*[1-9][0-9]+-[0-9a-zA-Z]{40}'
+
+  - pattern:
+      sensitive: true
+      name: Twitter Client ID
+      value: twitter[0-9a-z]{18,25}
+
+  - pattern:
+      sensitive: true
+      name: Twitter OAuth
+      value: '[tT][wW][iI][tT][tT][eE][rR].*[''|"][0-9a-zA-Z]{35,44}[''|"]'
+
+  - pattern:
+      sensitive: true
+      name: Twitter Secret Key
+      value: twitter[0-9a-z]{35,44}
+
+  - pattern:
+      sensitive: true
+      name: Trello URL
+      value: https://trello.com/b/[0-9a-z]/[0-9a-z_-]+
+
+  - pattern:
+      sensitive: true
+      name: Telegram Bot API Key
+      value: '[0-9]+:AA[0-9A-Za-z\-_]{33}'
+
+  - pattern:
+      sensitive: true
+      name: Stripe
+      value: '[rs]k_live_[a-zA-Z0-9]{20,30}'
+
+  - pattern:
+      sensitive: true
+      name: Stripe API Key - 1
+      value: sk_live_[0-9a-zA-Z]{24}
+
+  - pattern:
+      sensitive: true
+      name: Stripe API key - 2
+      value: stripe[sr]k_live_[0-9a-zA-Z]{24}
+
+  - pattern:
+      sensitive: true
+      name: Stripe API key - 3
+      value: stripe[sk|rk]_live_[0-9a-zA-Z]{24}
+
+  - pattern:
+      sensitive: true
+      name: Stripe Public Live Key
+      value: pk_live_[0-9a-z]{24}
+
+  - pattern:
+      sensitive: true
+      name: Stripe Public Test Key
+      value: pk_test_[0-9a-z]{24}
+
+  - pattern:
+      sensitive: true
+      name: Square
+      value: (?:square).{0,40}(EAAA[a-zA-Z0-9\-\+\=]{60})
+
+  - pattern:
+      sensitive: true
+      name: Square API Key
+      value: sq0(atp|csp)-[0-9a-z-_]{22,43}
+
+  - pattern:
+      sensitive: true
+      name: Square OAuth Secret
+      value: sq0csp-[0-9A-Za-z\-_]{43}
+
+  - pattern:
+      sensitive: true
+      name: Square access token
+      value: sq0atp-[0-9A-Za-z\-_]{22}
+
+  - pattern:
+      sensitive: true
+      name: Squareapp - 1
+      value: '[\w\-]*sq0i[a-z]{2}-[0-9A-Za-z\-_]{22,43}'
+
+  - pattern:
+      sensitive: true
+      name: Squareapp - 2
+      value: '[\w\-]*sq0c[a-z]{2}-[0-9A-Za-z\-_]{40,50}'
+
+  - pattern:
+      sensitive: true
+      name: Squareup
+      value: \b(sq0idp-[0-9A-Za-z]{22})\b
+
+  - pattern:
+      sensitive: true
+      name: firebase_api_json
+      value: firebase[_-]?api[_-]?json(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: firebase_api_token
+      value: firebase[_-]?api[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: firebase_key
+      value: firebase[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: firebase_project_develop
+      value: firebase[_-]?project[_-]?develop(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: firebase_token
+      value: firebase[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: slack_webhook_url
+      value: (hooks.slack.com/services/T[A-Z0-9]{8}/B[A-Z0-9]{8}/[a-zA-Z0-9]{1,})
+
+  - pattern:
+      sensitive: true
+      name: Slack
+      value: xox[baprs]-[0-9a-zA-Z]{10,48}
+
+  - pattern:
+      sensitive: true
+      name: Slack Token
+      value: (xox[pborsa]-[0-9]{12}-[0-9]{12}-[0-9]{12}-[a-z0-9]{32})
+
+  - pattern:
+      sensitive: true
+      name: Slack User token
+      value: xoxp-[0-9A-Za-z\-]{72}
+
+  - pattern:
+      sensitive: true
+      name: Slack Webhook
+      value: >-
+        https://hooks.slack.com/services/T[a-zA-Z0-9_]{8,10}/B[a-zA-Z0-9_]{8,12}/[a-zA-Z0-9_]{23,24}
+
+  - pattern:
+      sensitive: true
+      name: Slack access token
+      value: xoxb-[0-9A-Za-z\-]{51}
+
+  - pattern:
+      sensitive: true
+      name: Slackwebhook
+      value: (https:\/\/hooks.slack.com\/services\/[A-Za-z0-9+\/]{44,46})
+
+  - pattern:
+      sensitive: true
+      name: sendgrid - 2
+      value: sendgrid(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sendgrid_api_key - 1
+      value: sendgrid[_-]?api[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sendgrid_api_key - 2
+      value: (SG.[a-zA-Z0-9-]{16,32}.[a-zA-Z0-9-]{16,64})
+
+  - pattern:
+      sensitive: true
+      name: sendgrid_key
+      value: sendgrid[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sendgrid_password
+      value: sendgrid[_-]?password(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sendgrid_user
+      value: sendgrid[_-]?user(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sendgrid_username
+      value: sendgrid[_-]?username(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sendwithus_key
+      value: sendwithus[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sentry_auth_token
+      value: sentry[_-]?auth[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sentry_default_org
+      value: sentry[_-]?default[_-]?org(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sentry_endpoint
+      value: sentry[_-]?endpoint(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sentry_key
+      value: sentry[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: service_account_secret
+      value: service[_-]?account[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: ses_access_key
+      value: ses[_-]?access[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: ses_secret_key
+      value: ses[_-]?secret[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sandbox_access_token
+      value: sandbox[_-]?access[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sandbox_aws_access_key_id
+      value: sandbox[_-]?aws[_-]?access[_-]?key[_-]?id(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: sandbox_aws_secret_access_key
+      value: sandbox[_-]?aws[_-]?secret[_-]?access[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: datadog_api_key
+      value: datadog[_-]?api[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: datadog_app_key
+      value: datadog[_-]?app[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: database_host
+      value: database[_-]?host(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: database_name
+      value: database[_-]?  name(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: database_password
+      value: database[_-]?password(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: database_port
+      value: database[_-]?port(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: database_user
+      value: database[_-]?user(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: database_username
+      value: database[_-]?username(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: auth0_api_clientsecret
+      value: auth0[_-]?api[_-]?clientsecret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: auth0_client_secret
+      value: auth0[_-]?client[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_access
+      value: aws[_-]?access(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_access_key
+      value: aws[_-]?access[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_access_key_id - 1
+      value: aws[_-]?access[_-]?key[_-]?id(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_config_accesskeyid
+      value: aws[_-]?config[_-]?accesskeyid(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_config_secretaccesskey
+      value: aws[_-]?config[_-]?secretaccesskey(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_key
+      value: aws[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_patterns
+      value: (?:accesskeyid|secretaccesskey|aws_access_key_id|aws_secret_access_key)
+
+  - pattern:
+      sensitive: true
+      name: aws_s3
+      value: ([a-zA-Z0-9_-]+.s3.[a-z0-9_-]+.amazonaws.com)
+
+  - pattern:
+      sensitive: true
+      name: aws_secret
+      value: aws[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_secret_access_key
+      value: aws[_-]?secret[_-]?access[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_secret_key
+      value: aws[_-]?secret[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_secrets
+      value: aws[_-]?secrets(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_ses_access_key_id
+      value: aws[_-]?ses[_-]?access[_-]?key[_-]?id(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: aws_ses_secret_access_key
+      value: aws[_-]?ses[_-]?secret[_-]?access[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: awsaccesskeyid
+      value: awsaccesskeyid(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: awscn_access_key_id
+      value: awscn[_-]?access[_-]?key[_-]?id(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: awscn_secret_access_key
+      value: awscn[_-]?secret[_-]?access[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: awssecretkey
+      value: awssecretkey(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: algolia_admin_key_1
+      value: algolia[_-]?admin[_-]?key[_-]?1(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: algolia_admin_key_2
+      value: algolia[_-]?admin[_-]?key[_-]?2(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: algolia_admin_key_mcm
+      value: algolia[_-]?admin[_-]?key[_-]?mcm(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: algolia_api_key
+      value: algolia[_-]?api[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: algolia_api_key_mcm
+      value: algolia[_-]?api[_-]?key[_-]?mcm(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: algolia_api_key_search
+      value: algolia[_-]?api[_-]?key[_-]?search(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: algolia_search_api_key
+      value: algolia[_-]?search[_-]?api[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: algolia_search_key
+      value: algolia[_-]?search[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: algolia_search_key_1
+      value: algolia[_-]?search[_-]?key[_-]?1(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: Shopify access token
+      value: shpat_[a-fA-F0-9]{32}
+
+  - pattern:
+      sensitive: true
+      name: Shopify custom app access token
+      value: shpca_[a-fA-F0-9]{32}
+
+  - pattern:
+      sensitive: true
+      name: Shopify private app access token
+      value: shppa_[a-fA-F0-9]{32}
+
+  - pattern:
+      sensitive: true
+      name: Shopify shared secret
+      value: shpss_[a-fA-F0-9]{32}
+
+  - pattern:
+      sensitive: true
+      name: Postman
+      value: \b(PMAK-[a-zA-Z-0-9]{59})\b
+
+  - pattern:
+      sensitive: true
+      name: Paypaloauth - 1
+      value: \b([A-Za-z0-9_\.]{7}-[A-Za-z0-9_\.]{72})\b
+
+  - pattern:
+      sensitive: true
+      name: Paypaloauth - 2
+      value: \b([A-Za-z0-9_\.]{69}-[A-Za-z0-9_\.]{10})\b
+
+  - pattern:
+      sensitive: true
+      name: Newrelic Admin API Key
+      value: NRAA-[a-f0-9]{27}
+
+  - pattern:
+      sensitive: true
+      name: Newrelic Insights API Key
+      value: NRI(?:I|Q)-[A-Za-z0-9\-_]{32}
+
+  - pattern:
+      sensitive: true
+      name: Newrelic REST API Key
+      value: NRRA-[a-f0-9]{42}
+
+  - pattern:
+      sensitive: true
+      name: Newrelic Synthetics Location Key
+      value: NRSP-[a-z]{2}[0-9]{2}[a-f0-9]{31}
+
+  - pattern:
+      sensitive: true
+      name: Google (GCP) Service Account
+      value: '"type": "service_account"'
+
+  - pattern:
+      sensitive: true
+      name: Google API Key
+      value: AIza[0-9a-z-_]{35}
+
+  - pattern:
+      sensitive: true
+      name: Google Calendar URI
+      value: https://www\.google\.com/calendar/embed\?src=[A-Za-z0-9%@&;=\-_\./]+
+
+  - pattern:
+      sensitive: true
+      name: Google Cloud Platform OAuth
+      value: '[0-9]+-[0-9A-Za-z_]{32}\.apps\.googleusercontent\.com'
+
+  - pattern:
+      sensitive: true
+      name: Google OAuth Access Token
+      value: ya29\.[0-9A-Za-z\-_]+
+
+  - pattern:
+      sensitive: true
+      name: Google Oauth ID
+      value: '[0-9]+-[0-9a-z_]{32}.apps.googleusercontent.com'
+
+  - pattern:
+      sensitive: true
+      name: gitlab_user_email
+      value: gitlab[_-]?user[_-]?email(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: Gitlabv2
+      value: \b(glpat-[a-zA-Z0-9\-=_]{20,22})\b
+
+  - pattern:
+      sensitive: true
+      name: amazon_bucket_name
+      value: amazon[_-]?bucket[_-]?  name(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: amazon_secret_access_key
+      value: amazon[_-]?secret[_-]?access[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: contentful_access_token
+      value: contentful[_-]?access[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: contentful_cma_test_token
+      value: contentful[_-]?cma[_-]?test[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: contentful_integration_management_token
+      value: contentful[_-]?integration[_-]?management[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: contentful_php_management_test_token
+      value: contentful[_-]?php[_-]?management[_-]?test[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: contentful_test_org_cma_token
+      value: contentful[_-]?test[_-]?org[_-]?cma[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: contentful_v2_access_token
+      value: contentful[_-]?v2[_-]?access[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: digitalocean_access_token
+      value: digitalocean[_-]?access[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: digitalocean_ssh_key_body
+      value: digitalocean[_-]?ssh[_-]?key[_-]?body(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: digitalocean_ssh_key_ids
+      value: digitalocean[_-]?ssh[_-]?key[_-]?ids(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: docker_hub_password
+      value: docker[_-]?hub[_-]?password(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: docker_key
+      value: docker[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: docker_pass
+      value: docker[_-]?pass(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: docker_passwd
+      value: docker[_-]?passwd(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: docker_password
+      value: docker[_-]?password(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: docker_postgres_url
+      value: docker[_-]?postgres[_-]?url(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: docker_token
+      value: docker[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: dockerhub_password
+      value: dockerhub[_-]?password(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: dockerhubpassword
+      value: dockerhubpassword(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: gh_api_key
+      value: gh[_-]?api[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: gh_email
+      value: gh[_-]?email(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: gh_next_oauth_client_secret
+      value: gh[_-]?next[_-]?oauth[_-]?client[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: gh_next_unstable_oauth_client_id
+      value: gh[_-]?next[_-]?unstable[_-]?oauth[_-]?client[_-]?id(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: gh_next_unstable_oauth_client_secret
+      value: gh[_-]?next[_-]?unstable[_-]?oauth[_-]?client[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: gh_oauth_client_secret
+      value: gh[_-]?oauth[_-]?client[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: gh_oauth_token
+      value: gh[_-]?oauth[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: gh_repo_token
+      value: gh[_-]?repo[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: gh_token
+      value: gh[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: gh_unstable_oauth_client_secret
+      value: gh[_-]?unstable[_-]?oauth[_-]?client[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: ghb_token
+      value: ghb[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: heroku_api_key
+      value: heroku[_-]?api[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: heroku_api_key_api_key
+      value: >-
+        ([h|H][e|E][r|R][o|O][k|K][u|U].{0,30}[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})
+
+  - pattern:
+      sensitive: true
+      name: heroku_email
+      value: heroku[_-]?email(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: heroku_token
+      value: heroku[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: jwt_secret
+      value: jwt[_-]?secret(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: npm_api_key
+      value: npm[_-]?api[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: npm_api_token
+      value: npm[_-]?api[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: npm_auth_token
+      value: npm[_-]?auth[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: npm_email
+      value: npm[_-]?email(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: npm_password
+      value: npm[_-]?password(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: npm_secret_key
+      value: npm[_-]?secret[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: npm_token - 1
+      value: npm[_-]?token(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_access_key
+      value: s3[_-]?access[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_access_key_id
+      value: s3[_-]?access[_-]?key[_-]?id(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_bucket_name_app_logs
+      value: s3[_-]?bucket[_-]?  name[_-]?app[_-]?logs(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_bucket_name_assets
+      value: s3[_-]?bucket[_-]?  name[_-]?assets(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_external_3_amazonaws_com
+      value: s3[_-]?external[_-]?3[_-]?amazonaws[_-]?com(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_key
+      value: s3[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_key_app_logs
+      value: s3[_-]?key[_-]?app[_-]?logs(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_key_assets
+      value: s3[_-]?key[_-]?assets(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_secret_app_logs
+      value: s3[_-]?secret[_-]?app[_-]?logs(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_secret_assets
+      value: s3[_-]?secret[_-]?assets(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_secret_key
+      value: s3[_-]?secret[_-]?key(=| =|:| :)
+
+  - pattern:
+      sensitive: true
+      name: s3_user_secret
+      value: s3[_-]?user[_-]?secret(=| =|:| :)
+  - pattern:
+      sensitive: true
+      name: URI Credentials
+      value: ':\/\/([a-zA-Z0-9\-._~%!$&()*+,;=]+):([a-zA-Z0-9\-._~%!$&()*+,;=]+)@'

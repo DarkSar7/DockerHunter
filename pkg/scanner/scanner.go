@@ -15,9 +15,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
-	"dockerhunter/pkg/regex"
-	"dockerhunter/pkg/types"
-	"dockerhunter/pkg/validator"
+	"github.com/DarkSar7/DockerHunter/pkg/config"
+	"github.com/DarkSar7/DockerHunter/pkg/regex"
+	"github.com/DarkSar7/DockerHunter/pkg/types"
+	"github.com/DarkSar7/DockerHunter/pkg/validator"
 )
 
 var (
@@ -60,11 +61,9 @@ var (
 )
 
 type Options struct {
-	ImageName    string
-	AllTags      bool
-	Format       string // "text" or "json"
-	ValidatorURL string
-	BatchSize    int
+	ImageName string
+	AllTags   bool
+	Format    string
 }
 
 type ScanResults struct {
@@ -72,21 +71,15 @@ type ScanResults struct {
 	ImagesScanned   int
 	ImagesFailed    int
 	CandidatesFound int
-	Findings        []types.Candidate
+	Findings        []types.Finding
 	Errors          []string
 }
 
-func PerformScan(ctx context.Context, opts Options) (*ScanResults, error) {
+func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *config.RegexRules, val validator.Validator) (*ScanResults, error) {
 	results := &ScanResults{
 		Repository: opts.ImageName,
-		Findings:   []types.Candidate{},
+		Findings:   []types.Finding{},
 		Errors:     []string{},
-	}
-
-	valClient := validator.NewClient(opts.ValidatorURL)
-	batchSize := opts.BatchSize
-	if batchSize <= 0 {
-		batchSize = 100
 	}
 
 	// 1. Resolve tags to scan
@@ -110,14 +103,11 @@ func PerformScan(ctx context.Context, opts Options) (*ScanResults, error) {
 			return nil, fmt.Errorf("no tags found for repository %q", opts.ImageName)
 		}
 	} else {
-		// Single image scan mode
 		ref, err := name.ParseReference(opts.ImageName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse image reference %q: %w", opts.ImageName, err)
 		}
 		repoName = ref.Context().Name()
-		
-		// If tag is not specified, default to latest
 		tag := "latest"
 		if tRef, ok := ref.(name.Tag); ok {
 			tag = tRef.TagStr()
@@ -128,7 +118,23 @@ func PerformScan(ctx context.Context, opts Options) (*ScanResults, error) {
 	results.Repository = repoName
 	totalImages := len(tagsToScan)
 
-	// 2. Scan each tag individually
+	// Pre-compile rules database
+	compiledRules := regex.CompileRules(rRules)
+
+	// Initialize pipeline
+	pipeline := NewPipeline(
+		val,
+		compiledRules,
+		cfg.Pipeline.WorkerCount,
+		cfg.Pipeline.BatchSize,
+		cfg.Pipeline.BatchTimeoutMs,
+	)
+	pipeline.Start()
+
+	// Inline Deduplication Map (unique var+value+file+line)
+	seen := make(map[string]bool)
+
+	// 2. Scan each tag sequentially
 	for idx, tag := range tagsToScan {
 		imageProgressPrefix := fmt.Sprintf("[%d/%d]", idx+1, totalImages)
 		fullRef := fmt.Sprintf("%s:%s", repoName, tag)
@@ -143,107 +149,75 @@ func PerformScan(ctx context.Context, opts Options) (*ScanResults, error) {
 			continue
 		}
 
-		// Reconstruct and walk filesystem
-		fmt.Printf("%s Walking filesystem...\n", imageProgressPrefix)
-		squashedTree := img.SquashedTree()
-		
-		var imageCandidates []types.Candidate
-		walkErr := squashedTree.Walk(func(path file.Path, node filenode.FileNode) error {
-			if node.FileType != file.TypeRegular {
-				return nil
-			}
+		// Reconstruct and scan filesystem (safely wrapped to guarantee immediate cleanup)
+		func() {
+			defer img.Cleanup()
 
-			filePath := string(path)
-			if skipFile(filePath) {
-				return nil
-			}
-
-			// Read and scan file contents
-			fileReader, err := img.FileContentsFromSquash(path)
-			if err != nil {
-				// Log read errors, but do not abort walking
-				return nil
-			}
-			defer fileReader.Close()
-
-			scanner := bufio.NewScanner(fileReader)
-			lineNum := 0
-			isBin := false
+			fmt.Printf("%s Walking filesystem...\n", imageProgressPrefix)
+			squashedTree := img.SquashedTree()
 			
-			for scanner.Scan() {
-				lineNum++
-				line := scanner.Text()
+			_ = squashedTree.Walk(func(path file.Path, node filenode.FileNode) error {
+				if node.FileType != file.TypeRegular {
+					return nil
+				}
 
-				// Binary file checking on first line
-				if lineNum == 1 {
-					if strings.ContainsRune(line, 0) || !utf8.ValidString(line) {
-						isBin = true
-						break
+				filePath := string(path)
+				if skipFile(filePath) {
+					return nil
+				}
+
+				fileReader, err := img.FileContentsFromSquash(path)
+				if err != nil {
+					return nil
+				}
+				defer fileReader.Close()
+
+				scanner := bufio.NewScanner(fileReader)
+				lineNum := 0
+				isBin := false
+				
+				for scanner.Scan() {
+					lineNum++
+					line := scanner.Text()
+
+					if lineNum == 1 {
+						if strings.ContainsRune(line, 0) || !utf8.ValidString(line) {
+							isBin = true
+							break
+						}
+					}
+
+					if len(line) > 10000 {
+						continue
+					}
+
+					fileCandidates := regex.ExtractCandidates(repoName, tag, filePath, lineNum, line)
+					for _, c := range fileCandidates {
+						results.CandidatesFound++
+
+						// Deduplicate immediately after generic extraction
+						key := fmt.Sprintf("%s|%s|%s|%d", c.Variable, c.Value, c.File, c.Line)
+						if !seen[key] {
+							seen[key] = true
+							pipeline.Push(c)
+						}
 					}
 				}
-
-				// Skip extremely long lines to avoid scanning minified files or binary blocks
-				if len(line) > 10000 {
-					continue
+				
+				if isBin {
+					return nil
 				}
 
-				fileCandidates := regex.ExtractCandidates(repoName, tag, filePath, lineNum, line)
-				if len(fileCandidates) > 0 {
-					imageCandidates = append(imageCandidates, fileCandidates...)
-				}
-			}
-			
-			if isBin {
 				return nil
-			}
-
-			return nil
-		}, nil)
-
-		if walkErr != nil {
-			errStr := fmt.Sprintf("error walking filesystem for %s: %v", fullRef, walkErr)
-			fmt.Printf("⚠️  Error: %s\n", errStr)
-			results.ImagesFailed++
-			results.Errors = append(results.Errors, errStr)
-			img.Cleanup()
-			continue
-		}
-
-		// Deduplicate candidates for this image
-		uniqueCandidates := Deduplicate(imageCandidates)
-		results.CandidatesFound += len(imageCandidates)
-		fmt.Printf("%s %d candidates found (%d unique)\n", imageProgressPrefix, len(imageCandidates), len(uniqueCandidates))
-
-		// Batch validate candidates
-		var imageFindings []types.Candidate
-		totalBatches := (len(uniqueCandidates) + batchSize - 1) / batchSize
+			}, nil)
+		}()
 		
-		for b := 0; b < totalBatches; b++ {
-			start := b * batchSize
-			end := start + batchSize
-			if end > len(uniqueCandidates) {
-				end = len(uniqueCandidates)
-			}
-			
-			fmt.Printf("%s Sending batch %d/%d to validator...\n", imageProgressPrefix, b+1, totalBatches)
-			batch := uniqueCandidates[start:end]
-			batchFindings, err := valClient.ValidateBatch(batch)
-			if err != nil {
-				errStr := fmt.Sprintf("batch validation failed for image %s: %v", fullRef, err)
-				fmt.Printf("⚠️  Error: %s\n", errStr)
-				results.Errors = append(results.Errors, errStr)
-				// Continue to next batch despite failure
-				continue
-			}
-			imageFindings = append(imageFindings, batchFindings...)
-		}
-
-		results.Findings = append(results.Findings, imageFindings...)
 		results.ImagesScanned++
-
-		// Clean up immediately after tag processing finishes
-		img.Cleanup()
 	}
+
+	// Close the pipeline and collect findings
+	findings := pipeline.Close()
+	results.Findings = findings
 
 	return results, nil
 }
@@ -254,23 +228,20 @@ func skipFile(filePath string) bool {
 			return true
 		}
 	}
-
 	for _, ext := range blackListExtensions {
 		if strings.HasSuffix(filePath, ext) {
 			return true
 		}
 	}
-
 	return false
 }
 
-// Deduplicate filters out duplicate candidates based on the composite key of:
-// image, tag, file, line, variable, value.
+// Deduplicate filters out duplicate candidates based on variable, value, file, and line.
 func Deduplicate(candidates []types.Candidate) []types.Candidate {
 	seen := make(map[string]bool)
 	var unique []types.Candidate
 	for _, c := range candidates {
-		key := fmt.Sprintf("%s|%s|%s|%d|%s|%s", c.Image, c.Tag, c.File, c.Line, c.Variable, c.Value)
+		key := fmt.Sprintf("%s|%s|%s|%d", c.Variable, c.Value, c.File, c.Line)
 		if !seen[key] {
 			seen[key] = true
 			unique = append(unique, c)

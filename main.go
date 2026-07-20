@@ -2,21 +2,26 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
-	"dockerhunter/pkg/scanner"
+	"github.com/DarkSar7/DockerHunter/pkg/config"
+	"github.com/DarkSar7/DockerHunter/pkg/scanner"
+	"github.com/DarkSar7/DockerHunter/pkg/setup"
+	"github.com/DarkSar7/DockerHunter/pkg/validator"
 )
 
+//go:embed validator/* config/*
+var embeddedFS embed.FS
+
 var (
-	allTags      bool
-	jsonOutput   bool
-	format       string
-	validatorURL string
-	batchSize    int
+	allTags bool
+	format  string
 )
 
 func main() {
@@ -26,6 +31,14 @@ func main() {
 		Long:  `DockerHunter retrieves squashed container image filesystems directly from registries, scans them, and uses StarPII to validate credentials.`,
 	}
 
+	setupCmd := &cobra.Command{
+		Use:   "setup",
+		Short: "Initialize working directory, virtual environment, and cache the model",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return setup.RunSetup(embeddedFS)
+		},
+	}
+
 	scanCmd := &cobra.Command{
 		Use:   "scan [image]",
 		Short: "Scan a container image or repository for secrets",
@@ -33,21 +46,52 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			imageName := args[0]
 
-			// Harmonize --json and --format json
-			outputFormat := format
-			if jsonOutput {
-				outputFormat = "json"
+			// Load configurations from ~/.dockerhunter
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to get user home directory: %w", err)
 			}
+			baseDir := filepath.Join(home, ".dockerhunter")
+			configPath := filepath.Join(baseDir, "config.yaml")
+
+			// Check if setup has been executed
+			if _, err := os.Stat(configPath); os.IsNotExist(err) {
+				fmt.Println("Error: Configuration files not found. Please run 'dockerhunter setup' first.")
+				os.Exit(1)
+			}
+
+			cfg, err := config.LoadConfig(configPath)
+			if err != nil {
+				return fmt.Errorf("failed to load configuration: %w", err)
+			}
+
+			rules, err := config.LoadRegexRules(cfg.Scanner.RegexRulesPath)
+			if err != nil {
+				return fmt.Errorf("failed to load regex validation rules: %w", err)
+			}
+
+			// Resolve Python and Script paths
+			pyExe := cfg.Validator.ExecutablePath
+			scriptPath := filepath.Join(baseDir, "validator", "main.py")
+
+			// Start Python validator subprocess (Start ONCE, live during scan, close at exit)
+			fmt.Println("Starting AI Validator subprocess...")
+			val, err := validator.NewSubprocessValidator(pyExe, scriptPath)
+			if err != nil {
+				return fmt.Errorf("failed to start validator subprocess: %w", err)
+			}
+			defer val.Close()
 
 			opts := scanner.Options{
-				ImageName:    imageName,
-				AllTags:      allTags,
-				Format:       outputFormat,
-				ValidatorURL: validatorURL,
-				BatchSize:    batchSize,
+				ImageName: imageName,
+				AllTags:   allTags,
+				Format:    format,
+			}
+			if opts.Format == "" {
+				opts.Format = cfg.Scanner.OutputFormat
 			}
 
-			results, err := scanner.PerformScan(context.Background(), opts)
+			results, err := scanner.PerformScan(context.Background(), opts, cfg, rules, val)
 			if err != nil {
 				return err
 			}
@@ -57,13 +101,10 @@ func main() {
 		},
 	}
 
-	// Add flags
 	scanCmd.Flags().BoolVar(&allTags, "all-tags", false, "Scan all tags in the repository")
-	scanCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results in JSON format")
-	scanCmd.Flags().StringVar(&format, "format", "text", "Output format (text, json)")
-	scanCmd.Flags().StringVarP(&validatorURL, "validator-url", "u", "http://localhost:9001", "AI Validator Service endpoint URL")
-	scanCmd.Flags().IntVarP(&batchSize, "batch-size", "b", 100, "Inference batch size")
+	scanCmd.Flags().StringVar(&format, "format", "", "Output format (text, json)")
 
+	rootCmd.AddCommand(setupCmd)
 	rootCmd.AddCommand(scanCmd)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -83,7 +124,6 @@ func displayResults(res *scanner.ScanResults, fmtOpt string) {
 		return
 	}
 
-	// Print beautiful Text report
 	fmt.Println("\n=======================================================")
 	fmt.Println("             DOCKERHUNTER SCAN SUMMARY")
 	fmt.Println("=======================================================")

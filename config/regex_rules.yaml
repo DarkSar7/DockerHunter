@@ -1,0 +1,30 @@
+# Regex Rules Database
+
+providers:
+  aws:
+    variable:
+      - "(?i)aws"
+      - "(?i)access"
+      - "(?i)secret"
+    value:
+      - "^AKIA[0-9A-Z]{16}$"
+
+  github:
+    variable:
+      - "(?i)github"
+      - "(?i)gh"
+    value:
+      - "^ghp_[A-Za-z0-9]{36}$"
+
+  slack:
+    variable:
+      - "(?i)slack"
+    value:
+      - "^xox[baprs]-"
+
+  jwt:
+    variable:
+      - "(?i)jwt"
+      - "(?i)token"
+    value:
+      - "^eyJ"
