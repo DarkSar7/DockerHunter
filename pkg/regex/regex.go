@@ -43,13 +43,13 @@ func CompileRules(rules *config.RegexRules) *CompiledRules {
 }
 
 // MatchRules checks if a candidate matches any signature validation rule.
-func MatchRules(variable, value string, cr *CompiledRules) bool {
+func MatchRules(variable, value, context string, cr *CompiledRules) bool {
 	if cr == nil || len(cr.Signatures) == 0 {
 		return true // If no rules loaded, pass it through
 	}
 
 	for _, sig := range cr.Signatures {
-		if sig.Re.MatchString(value) {
+		if sig.Re.MatchString(value) || sig.Re.MatchString(variable) || sig.Re.MatchString(context) {
 			return true
 		}
 	}

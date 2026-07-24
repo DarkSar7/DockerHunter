@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -20,8 +21,10 @@ import (
 var embeddedFS embed.FS
 
 var (
-	allTags bool
-	format  string
+	allTags         bool
+	format          string
+	outputPath      string
+	preAICandidates bool
 )
 
 func main() {
@@ -86,6 +89,7 @@ func main() {
 				ImageName: imageName,
 				AllTags:   allTags,
 				Format:    format,
+				Pre:       preAICandidates,
 			}
 			if opts.Format == "" {
 				opts.Format = cfg.Scanner.OutputFormat
@@ -96,13 +100,25 @@ func main() {
 				return err
 			}
 
-			displayResults(results, opts.Format)
+			if outputPath != "" {
+				file, err := os.Create(outputPath)
+				if err != nil {
+					return fmt.Errorf("failed to create output file %s: %w", outputPath, err)
+				}
+				defer file.Close()
+				displayResults(file, results, opts.Format)
+				fmt.Printf("✓ Scan results saved to %s\n", outputPath)
+			} else {
+				displayResults(os.Stdout, results, opts.Format)
+			}
 			return nil
 		},
 	}
 
 	scanCmd.Flags().BoolVar(&allTags, "all-tags", false, "Scan all tags in the repository")
 	scanCmd.Flags().StringVar(&format, "format", "", "Output format (text, json)")
+	scanCmd.Flags().StringVarP(&outputPath, "output", "o", "", "Path to save final results")
+	scanCmd.Flags().BoolVar(&preAICandidates, "pre", false, "Save pre-AI validation candidates to pre.json")
 
 	rootCmd.AddCommand(setupCmd)
 	rootCmd.AddCommand(scanCmd)
@@ -113,45 +129,45 @@ func main() {
 	}
 }
 
-func displayResults(res *scanner.ScanResults, fmtOpt string) {
+func displayResults(w io.Writer, res *scanner.ScanResults, fmtOpt string) {
 	if fmtOpt == "json" {
 		jsonBytes, err := json.MarshalIndent(res.Findings, "", "  ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error formatting JSON: %v\n", err)
 			return
 		}
-		fmt.Println(string(jsonBytes))
+		fmt.Fprintln(w, string(jsonBytes))
 		return
 	}
 
-	fmt.Println("\n=======================================================")
-	fmt.Println("             DOCKERHUNTER SCAN SUMMARY")
-	fmt.Println("=======================================================")
-	fmt.Printf("Repository:         %s\n", res.Repository)
-	fmt.Printf("Images Scanned:     %d\n", res.ImagesScanned)
-	fmt.Printf("Images Failed:      %d\n", res.ImagesFailed)
-	fmt.Printf("Candidates Found:   %d\n", res.CandidatesFound)
-	fmt.Printf("Validated Findings: %d\n", len(res.Findings))
-	fmt.Println("=======================================================")
+	fmt.Fprintln(w, "\n=======================================================")
+	fmt.Fprintln(w, "             DOCKERHUNTER SCAN SUMMARY")
+	fmt.Fprintln(w, "=======================================================")
+	fmt.Fprintf(w, "Repository:         %s\n", res.Repository)
+	fmt.Fprintf(w, "Images Scanned:     %d\n", res.ImagesScanned)
+	fmt.Fprintf(w, "Images Failed:      %d\n", res.ImagesFailed)
+	fmt.Fprintf(w, "Candidates Found:   %d\n", res.CandidatesFound)
+	fmt.Fprintf(w, "Validated Findings: %d\n", len(res.Findings))
+	fmt.Fprintln(w, "=======================================================")
 
 	if len(res.Findings) > 0 {
-		fmt.Println("\nValidated Findings Details:")
-		fmt.Println("-------------------------------------------------------")
+		fmt.Fprintln(w, "\nValidated Findings Details:")
+		fmt.Fprintln(w, "-------------------------------------------------------")
 		for idx, f := range res.Findings {
-			fmt.Printf("[%d] Tag: %s | File: %s:%d\n", idx+1, f.Tag, f.File, f.Line)
-			fmt.Printf("    Variable: %s\n", f.Variable)
-			fmt.Printf("    Value:    %s\n", f.Value)
-			fmt.Printf("    Context:  %s\n", f.Context)
-			fmt.Println("-------------------------------------------------------")
+			fmt.Fprintf(w, "[%d] Tag: %s | File: %s:%d\n", idx+1, f.Tag, f.File, f.Line)
+			fmt.Fprintf(w, "    Variable: %s\n", f.Variable)
+			fmt.Fprintf(w, "    Value:    %s\n", f.Value)
+			fmt.Fprintf(w, "    Context:  %s\n", f.Context)
+			fmt.Fprintln(w, "-------------------------------------------------------")
 		}
 	} else {
-		fmt.Println("\nNo validated secrets found in the scanned target(s).")
+		fmt.Fprintln(w, "\nNo validated secrets found in the scanned target(s).")
 	}
 
 	if len(res.Errors) > 0 {
-		fmt.Println("\nErrors encountered during scan:")
+		fmt.Fprintln(w, "\nErrors encountered during scan:")
 		for _, errStr := range res.Errors {
-			fmt.Printf(" - %s\n", errStr)
+			fmt.Fprintf(w, " - %s\n", errStr)
 		}
 	}
 }

@@ -22,6 +22,8 @@ type Pipeline struct {
 	wgWorkers              sync.WaitGroup
 	wgPipeline             sync.WaitGroup
 	findings               []types.Finding
+	preAICandidates        []types.Candidate
+	collectPre             bool
 	mu                     sync.Mutex
 }
 
@@ -47,7 +49,13 @@ func NewPipeline(val validator.Validator, rules *regex.CompiledRules, workerCoun
 		workerCount:            workerCount,
 		batchSize:              batchSize,
 		batchTimeout:           timeout,
+		preAICandidates:        []types.Candidate{},
 	}
+}
+
+// SetCollectPre enables or disables collecting pre-AI validation candidates.
+func (p *Pipeline) SetCollectPre(collect bool) {
+	p.collectPre = collect
 }
 
 // Start boots background goroutines for the pipeline.
@@ -82,7 +90,7 @@ func (p *Pipeline) Push(c types.Candidate) {
 }
 
 // Close tells the pipeline that extraction has completed and blocks until all results are gathered.
-func (p *Pipeline) Close() []types.Finding {
+func (p *Pipeline) Close() ([]types.Finding, []types.Candidate) {
 	close(p.candidateChan)
 	p.wgPipeline.Wait()
 	
@@ -91,13 +99,13 @@ func (p *Pipeline) Close() []types.Finding {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.findings
+	return p.findings, p.preAICandidates
 }
 
 func (p *Pipeline) workerRegexValidation() {
 	defer p.wgWorkers.Done()
 	for c := range p.candidateChan {
-		if regex.MatchRules(c.Variable, c.Value, p.rules) {
+		if regex.MatchRules(c.Variable, c.Value, c.Context, p.rules) {
 			p.validatedCandidateChan <- c
 		}
 	}
@@ -119,6 +127,9 @@ func (p *Pipeline) workerBatchBuilder() {
 					p.batchChan <- batch
 				}
 				return
+			}
+			if p.collectPre {
+				p.preAICandidates = append(p.preAICandidates, c)
 			}
 			batch = append(batch, c)
 			if len(batch) >= p.batchSize {

@@ -3,7 +3,9 @@ package scanner
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"unicode/utf8"
 
@@ -64,6 +66,7 @@ type Options struct {
 	ImageName string
 	AllTags   bool
 	Format    string
+	Pre       bool
 }
 
 type ScanResults struct {
@@ -129,6 +132,7 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 		cfg.Pipeline.BatchSize,
 		cfg.Pipeline.BatchTimeoutMs,
 	)
+	pipeline.SetCollectPre(opts.Pre)
 	pipeline.Start()
 
 	// Inline Deduplication Map (unique var+value+file+line)
@@ -216,8 +220,22 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 	}
 
 	// Close the pipeline and collect findings
-	findings := pipeline.Close()
+	findings, preAICandidates := pipeline.Close()
 	results.Findings = findings
+
+	if opts.Pre {
+		fmt.Println("Writing pre-AI validation candidates to pre.json...")
+		preBytes, err := json.MarshalIndent(preAICandidates, "", "  ")
+		if err != nil {
+			fmt.Printf("⚠️  Error marshalling pre-AI candidates: %v\n", err)
+		} else {
+			if err := os.WriteFile("pre.json", preBytes, 0644); err != nil {
+				fmt.Printf("⚠️  Error writing pre.json: %v\n", err)
+			} else {
+				fmt.Println("✓ pre.json written successfully.")
+			}
+		}
+	}
 
 	return results, nil
 }
