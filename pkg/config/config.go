@@ -24,6 +24,20 @@ type Config struct {
 		RegexRulesPath string `yaml:"regex_rules_path"`
 		OutputFormat   string `yaml:"output_format"`
 	} `yaml:"scanner"`
+	Authentication struct {
+		DefaultCooldown   string `yaml:"default_cooldown"`
+		AnonymousFallback bool   `yaml:"anonymous_fallback"`
+	} `yaml:"authentication"`
+	Registries map[string]RegistryConfig `yaml:"registries"`
+}
+
+type RegistryConfig struct {
+	Accounts []AccountConfig `yaml:"accounts"`
+}
+
+type AccountConfig struct {
+	Username string `yaml:"username"`
+	Token    string `yaml:"token"`
 }
 
 type RegexRules struct {

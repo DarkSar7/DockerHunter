@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/DarkSar7/DockerHunter/pkg/auth"
 	"github.com/DarkSar7/DockerHunter/pkg/config"
 	"github.com/DarkSar7/DockerHunter/pkg/scanner"
 	"github.com/DarkSar7/DockerHunter/pkg/setup"
@@ -103,7 +104,8 @@ func main() {
 				opts.Format = cfg.Scanner.OutputFormat
 			}
 
-			results, err := scanner.PerformScan(context.Background(), opts, cfg, rules, val)
+			authMgr := auth.NewAuthManager(cfg)
+			results, err := scanner.PerformScan(context.Background(), opts, cfg, rules, val, authMgr)
 			if err != nil {
 				return err
 			}

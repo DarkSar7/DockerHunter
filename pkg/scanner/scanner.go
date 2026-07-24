@@ -21,7 +21,9 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 
+	"github.com/DarkSar7/DockerHunter/pkg/auth"
 	"github.com/DarkSar7/DockerHunter/pkg/config"
 	"github.com/DarkSar7/DockerHunter/pkg/regex"
 	"github.com/DarkSar7/DockerHunter/pkg/types"
@@ -87,7 +89,7 @@ type ScanResults struct {
 	Errors          []string
 }
 
-func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *config.RegexRules, val validator.Validator) (*ScanResults, error) {
+func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *config.RegexRules, val validator.Validator, authManager *auth.AuthManager) (*ScanResults, error) {
 	results := &ScanResults{
 		Repository: opts.ImageName,
 		Findings:   []types.Finding{},
@@ -105,11 +107,34 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 		}
 		repoName = repo.Name()
 
-		fmt.Println("Fetching tags from registry...")
-		tags, err := remote.List(repo, remote.WithAuthFromKeychain(authn.DefaultKeychain))
-		if err != nil {
-			return nil, fmt.Errorf("failed to list repository tags: %w", err)
+		registry := repo.RegistryStr()
+		numAccounts := len(authManager.GetAccountsStats(registry))
+		maxRetries := numAccounts
+		if maxRetries <= 0 {
+			maxRetries = 0
 		}
+
+		fmt.Println("Fetching tags from registry...")
+		
+		var tags []string
+		for attempt := 0; attempt <= maxRetries; attempt++ {
+			a, username, authErr := authManager.GetAuthenticator(registry)
+			if authErr != nil {
+				return nil, authErr
+			}
+
+			optsList := getRemoteOptions(authManager, a)
+			tags, err = remote.List(repo, optsList...)
+			if err != nil {
+				if isRateLimitError(err) && username != "" {
+					authManager.ReportRateLimit(registry, username, 0)
+					continue
+				}
+				return nil, fmt.Errorf("failed to list repository tags: %w", err)
+			}
+			break
+		}
+		
 		tagsToScan = tags
 		if len(tagsToScan) == 0 {
 			return nil, fmt.Errorf("no tags found for repository %q", opts.ImageName)
@@ -126,7 +151,7 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 			var tagMeta []tagWithTime
 			var fetched bool
 
-			// Try Docker Hub API directly if repository is on Docker Hub to avoid registry connection throttling
+			// Try Docker Hub API directly if repository is on Docker Hub
 			parts := strings.Split(repoName, "/")
 			if len(parts) >= 2 && (parts[0] == "index.docker.io" || parts[0] == "docker.io") {
 				namespace := "library"
@@ -135,9 +160,9 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 					namespace = parts[1]
 				}
 				fmt.Printf("Fetching tags from Docker Hub API for %s/%s...\n", namespace, nameStr)
-				meta, err := fetchDockerHubTags(namespace, nameStr)
+				meta, err := fetchDockerHubTags(namespace, nameStr, authManager)
 				if err == nil {
-					// We only keep tags that are actually in tagsToScan (which might be filtered by semver!)
+					// Keep only the tags in tagsToScan
 					tagSet := make(map[string]bool)
 					for _, t := range tagsToScan {
 						tagSet[t] = true
@@ -155,7 +180,7 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 			}
 
 			if !fetched {
-				tagMeta = fetchTagsCreationTimes(repoName, tagsToScan)
+				tagMeta = fetchTagsCreationTimes(repoName, tagsToScan, authManager)
 			}
 			
 			// Sort tags by creation time descending (newest first)
@@ -185,7 +210,7 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 				tagMeta = tagMeta[:opts.Latest]
 			}
 
-			// Reconstruct tagsToScan from sorted/filtered slice
+			// Reconstruct tagsToScan
 			tagsToScan = make([]string, len(tagMeta))
 			for i, tm := range tagMeta {
 				tagsToScan[i] = tm.tag
@@ -236,7 +261,44 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 		fullRef := fmt.Sprintf("%s:%s", repoName, tag)
 
 		fmt.Printf("%s Pulling %s...\n", imageProgressPrefix, fullRef)
-		img, err := stereoscope.GetImageFromSource(ctx, fullRef, image.OciRegistrySource)
+
+		ref, err := name.ParseReference(fullRef)
+		if err != nil {
+			errStr := fmt.Sprintf("failed to parse reference %s: %v", fullRef, err)
+			results.ImagesFailed++
+			results.Errors = append(results.Errors, errStr)
+			continue
+		}
+		registry := ref.Context().RegistryStr()
+
+		numAccounts := len(authManager.GetAccountsStats(registry))
+		maxRetries := numAccounts
+		if maxRetries <= 0 {
+			maxRetries = 0
+		}
+
+		var img *image.Image
+		for attempt := 0; attempt <= maxRetries; attempt++ {
+			a, username, authErr := authManager.GetAuthenticator(registry)
+			if authErr != nil {
+				err = authErr
+				break
+			}
+
+			img, err = stereoscope.GetImageFromSource(ctx, fullRef, image.OciRegistrySource, stereoscope.WithCredentials(image.RegistryCredentials{
+				Authority:     registry,
+				Authenticator: a,
+			}))
+			if err != nil {
+				if isRateLimitError(err) && username != "" {
+					authManager.ReportRateLimit(registry, username, 0)
+					continue
+				}
+				break
+			}
+			break
+		}
+
 		if err != nil {
 			errStr := fmt.Sprintf("failed to download image %s: %v", fullRef, err)
 			fmt.Printf("⚠️  Error: %s\n", errStr)
@@ -402,13 +464,25 @@ func filterSemver(tags []string, constraintStr string) []string {
 	return filtered
 }
 
-func fetchTagsCreationTimes(repoName string, tags []string) []tagWithTime {
+func fetchTagsCreationTimes(repoName string, tags []string, authManager *auth.AuthManager) []tagWithTime {
 	fmt.Printf("Fetching creation timestamps for %d tags...\n", len(tags))
 	
 	sem := make(chan struct{}, 8) // concurrency limit of 8
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var results []tagWithTime
+
+	refRepo, err := name.NewRepository(repoName)
+	registry := "index.docker.io"
+	if err == nil {
+		registry = refRepo.RegistryStr()
+	}
+
+	numAccounts := len(authManager.GetAccountsStats(registry))
+	maxRetries := numAccounts
+	if maxRetries <= 0 {
+		maxRetries = 0
+	}
 
 	for _, tag := range tags {
 		wg.Add(1)
@@ -417,7 +491,6 @@ func fetchTagsCreationTimes(repoName string, tags []string) []tagWithTime {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			// 8-second timeout per tag query to prevent hanging
 			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			defer cancel()
 
@@ -426,14 +499,34 @@ func fetchTagsCreationTimes(repoName string, tags []string) []tagWithTime {
 				return
 			}
 			
-			desc, err := remote.Get(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain), remote.WithContext(ctx))
+			var desc *remote.Descriptor
+			for attempt := 0; attempt <= maxRetries; attempt++ {
+				a, username, authErr := authManager.GetAuthenticator(registry)
+				if authErr != nil {
+					err = authErr
+					break
+				}
+
+				optsList := getRemoteOptions(authManager, a)
+				optsList = append(optsList, remote.WithContext(ctx))
+
+				desc, err = remote.Get(ref, optsList...)
+				if err != nil {
+					if isRateLimitError(err) && username != "" {
+						authManager.ReportRateLimit(registry, username, 0)
+						continue
+					}
+					break
+				}
+				break
+			}
+
 			if err != nil {
 				return
 			}
 
 			img, err := desc.Image()
 			if err != nil {
-				// If it's a manifest list / index, resolve the concrete platform image
 				index, indexErr := desc.ImageIndex()
 				if indexErr != nil {
 					return
@@ -477,7 +570,7 @@ type hubResponse struct {
 	Next string `json:"next"`
 }
 
-func fetchDockerHubTags(namespace, name string) ([]tagWithTime, error) {
+func fetchDockerHubTags(namespace, name string, authManager *auth.AuthManager) ([]tagWithTime, error) {
 	url := fmt.Sprintf("https://hub.docker.com/v2/repositories/%s/%s/tags?page_size=100", namespace, name)
 	
 	var results []tagWithTime
@@ -489,11 +582,23 @@ func fetchDockerHubTags(namespace, name string) ([]tagWithTime, error) {
 			return nil, err
 		}
 		
+		a, username, authErr := authManager.GetAuthenticator("index.docker.io")
+		if authErr == nil && username != "" {
+			if basic, ok := a.(*authn.Basic); ok {
+				req.SetBasicAuth(basic.Username, basic.Password)
+			}
+		}
+
 		resp, err := client.Do(req)
 		if err != nil {
 			return nil, err
 		}
 		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusTooManyRequests && username != "" {
+			authManager.ReportRateLimit("index.docker.io", username, 0)
+			continue
+		}
 
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("unexpected status: %s", resp.Status)
@@ -513,4 +618,41 @@ func fetchDockerHubTags(namespace, name string) ([]tagWithTime, error) {
 		url = hr.Next
 	}
 	return results, nil
+}
+
+type rateLimitTransport struct {
+	inner http.RoundTripper
+	mgr   *auth.AuthManager
+}
+
+func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.inner.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	t.mgr.InterceptResponse(req, resp)
+	return resp, nil
+}
+
+func getRemoteOptions(mgr *auth.AuthManager, a authn.Authenticator) []remote.Option {
+	var opts []remote.Option
+	if a != nil {
+		opts = append(opts, remote.WithAuth(a))
+	}
+	opts = append(opts, remote.WithTransport(&rateLimitTransport{
+		inner: remote.DefaultTransport,
+		mgr:   mgr,
+	}))
+	return opts
+}
+
+func isRateLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if tErr, ok := err.(*transport.Error); ok {
+		return tErr.StatusCode == http.StatusTooManyRequests
+	}
+	errStr := strings.ToUpper(err.Error())
+	return strings.Contains(errStr, "TOOMANYREQUESTS") || strings.Contains(errStr, "429")
 }
