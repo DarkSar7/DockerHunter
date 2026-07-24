@@ -25,6 +25,10 @@ var (
 	format          string
 	outputPath      string
 	preAICandidates bool
+	maxTags         int
+	sinceDate       string
+	latestCount     int
+	semverRange     string
 )
 
 func main() {
@@ -90,6 +94,10 @@ func main() {
 				AllTags:   allTags,
 				Format:    format,
 				Pre:       preAICandidates,
+				MaxTags:   maxTags,
+				Since:     sinceDate,
+				Latest:    latestCount,
+				Semver:    semverRange,
 			}
 			if opts.Format == "" {
 				opts.Format = cfg.Scanner.OutputFormat
@@ -119,6 +127,10 @@ func main() {
 	scanCmd.Flags().StringVar(&format, "format", "", "Output format (text, json)")
 	scanCmd.Flags().StringVarP(&outputPath, "output", "o", "", "Path to save final results")
 	scanCmd.Flags().BoolVar(&preAICandidates, "pre", false, "Save pre-AI validation candidates to pre.json")
+	scanCmd.Flags().IntVar(&maxTags, "max-tags", 0, "Maximum number of tags to scan")
+	scanCmd.Flags().StringVar(&sinceDate, "since", "", "Scan tags created since date (YYYY-MM or YYYY-MM-DD)")
+	scanCmd.Flags().IntVar(&latestCount, "latest", 0, "Scan only the N most recently updated tags")
+	scanCmd.Flags().StringVar(&semverRange, "semver", "", "Scan only tags matching semantic versioning constraint")
 
 	rootCmd.AddCommand(setupCmd)
 	rootCmd.AddCommand(scanCmd)

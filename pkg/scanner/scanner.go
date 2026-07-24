@@ -5,10 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
+	"sort"
 	"strings"
+	"sync"
+	"time"
 	"unicode/utf8"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/anchore/stereoscope"
 	"github.com/anchore/stereoscope/pkg/file"
 	"github.com/anchore/stereoscope/pkg/filetree/filenode"
@@ -67,6 +72,10 @@ type Options struct {
 	AllTags   bool
 	Format    string
 	Pre       bool
+	MaxTags   int
+	Since     string
+	Latest    int
+	Semver    string
 }
 
 type ScanResults struct {
@@ -104,6 +113,89 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 		tagsToScan = tags
 		if len(tagsToScan) == 0 {
 			return nil, fmt.Errorf("no tags found for repository %q", opts.ImageName)
+		}
+
+		// Apply Semver constraint filter
+		if opts.Semver != "" {
+			fmt.Printf("Filtering tags by semver constraint %q...\n", opts.Semver)
+			tagsToScan = filterSemver(tagsToScan, opts.Semver)
+		}
+
+		// Apply Timestamp filters (Since and/or Latest)
+		if opts.Since != "" || opts.Latest > 0 {
+			var tagMeta []tagWithTime
+			var fetched bool
+
+			// Try Docker Hub API directly if repository is on Docker Hub to avoid registry connection throttling
+			parts := strings.Split(repoName, "/")
+			if len(parts) >= 2 && (parts[0] == "index.docker.io" || parts[0] == "docker.io") {
+				namespace := "library"
+				nameStr := parts[len(parts)-1]
+				if len(parts) == 3 {
+					namespace = parts[1]
+				}
+				fmt.Printf("Fetching tags from Docker Hub API for %s/%s...\n", namespace, nameStr)
+				meta, err := fetchDockerHubTags(namespace, nameStr)
+				if err == nil {
+					// We only keep tags that are actually in tagsToScan (which might be filtered by semver!)
+					tagSet := make(map[string]bool)
+					for _, t := range tagsToScan {
+						tagSet[t] = true
+					}
+					for _, tm := range meta {
+						if tagSet[tm.tag] {
+							tagMeta = append(tagMeta, tm)
+						}
+					}
+					fetched = true
+					fmt.Printf("✓ Successfully fetched %d sorted tags from Docker Hub API.\n", len(tagMeta))
+				} else {
+					fmt.Printf("⚠️  Docker Hub API call failed: %v. Falling back to OCI configuration queries.\n", err)
+				}
+			}
+
+			if !fetched {
+				tagMeta = fetchTagsCreationTimes(repoName, tagsToScan)
+			}
+			
+			// Sort tags by creation time descending (newest first)
+			sort.Slice(tagMeta, func(i, j int) bool {
+				return tagMeta[i].created.After(tagMeta[j].created)
+			})
+
+			// Filter by Since Date
+			if opts.Since != "" {
+				sinceTime, err := parseSince(opts.Since)
+				if err != nil {
+					return nil, err
+				}
+				fmt.Printf("Filtering tags created since %s...\n", sinceTime.Format("2006-01-02"))
+				var sinceTags []tagWithTime
+				for _, tm := range tagMeta {
+					if tm.created.After(sinceTime) || tm.created.Equal(sinceTime) {
+						sinceTags = append(sinceTags, tm)
+					}
+				}
+				tagMeta = sinceTags
+			}
+
+			// Filter by Latest N count
+			if opts.Latest > 0 && opts.Latest < len(tagMeta) {
+				fmt.Printf("Filtering to top %d latest tags...\n", opts.Latest)
+				tagMeta = tagMeta[:opts.Latest]
+			}
+
+			// Reconstruct tagsToScan from sorted/filtered slice
+			tagsToScan = make([]string, len(tagMeta))
+			for i, tm := range tagMeta {
+				tagsToScan[i] = tm.tag
+			}
+		}
+
+		// Apply Max Tags cap
+		if opts.MaxTags > 0 && opts.MaxTags < len(tagsToScan) {
+			fmt.Printf("Capping scan list to %d tags (max-tags limit)...\n", opts.MaxTags)
+			tagsToScan = tagsToScan[:opts.MaxTags]
 		}
 	} else {
 		ref, err := name.ParseReference(opts.ImageName)
@@ -266,4 +358,159 @@ func Deduplicate(candidates []types.Candidate) []types.Candidate {
 		}
 	}
 	return unique
+}
+
+type tagWithTime struct {
+	tag     string
+	created time.Time
+}
+
+func parseSince(sinceStr string) (time.Time, error) {
+	sinceStr = strings.TrimSpace(sinceStr)
+	var t time.Time
+	var err error
+	if len(sinceStr) == 7 { // YYYY-MM
+		t, err = time.Parse("2006-01", sinceStr)
+	} else if len(sinceStr) == 10 { // YYYY-MM-DD
+		t, err = time.Parse("2006-01-02", sinceStr)
+	} else {
+		return t, fmt.Errorf("invalid since date format %q (use YYYY-MM or YYYY-MM-DD)", sinceStr)
+	}
+	return t, err
+}
+
+func filterSemver(tags []string, constraintStr string) []string {
+	c, err := semver.NewConstraint(constraintStr)
+	if err != nil {
+		fmt.Printf("⚠️  Invalid semver constraint %q: %v. Skipping semver filter.\n", constraintStr, err)
+		return tags
+	}
+
+	var filtered []string
+	for _, tag := range tags {
+		cleanTag := tag
+		if len(tag) > 0 && (tag[0] == 'v' || tag[0] == 'V') {
+			cleanTag = tag[1:]
+		}
+		v, err := semver.NewVersion(cleanTag)
+		if err == nil {
+			if c.Check(v) {
+				filtered = append(filtered, tag)
+			}
+		}
+	}
+	return filtered
+}
+
+func fetchTagsCreationTimes(repoName string, tags []string) []tagWithTime {
+	fmt.Printf("Fetching creation timestamps for %d tags...\n", len(tags))
+	
+	sem := make(chan struct{}, 8) // concurrency limit of 8
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var results []tagWithTime
+
+	for _, tag := range tags {
+		wg.Add(1)
+		go func(t string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			// 8-second timeout per tag query to prevent hanging
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+
+			ref, err := name.ParseReference(fmt.Sprintf("%s:%s", repoName, t))
+			if err != nil {
+				return
+			}
+			
+			desc, err := remote.Get(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain), remote.WithContext(ctx))
+			if err != nil {
+				return
+			}
+
+			img, err := desc.Image()
+			if err != nil {
+				// If it's a manifest list / index, resolve the concrete platform image
+				index, indexErr := desc.ImageIndex()
+				if indexErr != nil {
+					return
+				}
+				manifest, manifestErr := index.IndexManifest()
+				if manifestErr != nil {
+					return
+				}
+				if len(manifest.Manifests) == 0 {
+					return
+				}
+				img, err = index.Image(manifest.Manifests[0].Digest)
+				if err != nil {
+					return
+				}
+			}
+
+			cfg, err := img.ConfigFile()
+			if err != nil {
+				return
+			}
+
+			mu.Lock()
+			results = append(results, tagWithTime{
+				tag:     t,
+				created: cfg.Created.Time,
+			})
+			mu.Unlock()
+		}(tag)
+	}
+
+	wg.Wait()
+	return results
+}
+
+type hubResponse struct {
+	Results []struct {
+		Name        string    `json:"name"`
+		LastUpdated time.Time `json:"last_updated"`
+	} `json:"results"`
+	Next string `json:"next"`
+}
+
+func fetchDockerHubTags(namespace, name string) ([]tagWithTime, error) {
+	url := fmt.Sprintf("https://hub.docker.com/v2/repositories/%s/%s/tags?page_size=100", namespace, name)
+	
+	var results []tagWithTime
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	for url != "" {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, err
+		}
+		
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("unexpected status: %s", resp.Status)
+		}
+
+		var hr hubResponse
+		if err := json.NewDecoder(resp.Body).Decode(&hr); err != nil {
+			return nil, err
+		}
+
+		for _, r := range hr.Results {
+			results = append(results, tagWithTime{
+				tag:     r.Name,
+				created: r.LastUpdated,
+			})
+		}
+		url = hr.Next
+	}
+	return results, nil
 }
