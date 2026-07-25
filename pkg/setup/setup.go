@@ -36,15 +36,8 @@ func RunSetup(embeddedFS embed.FS) error {
 	}
 
 	rulesDest := filepath.Join(baseDir, "regex_rules.yaml")
-	if _, err := os.Stat("regexes.yaml"); err == nil {
-		fmt.Println("Found local regexes.yaml. Copying it to working directory...")
-		if err := copyFile("regexes.yaml", rulesDest); err != nil {
-			return fmt.Errorf("failed to copy local regexes.yaml: %w", err)
-		}
-	} else {
-		if err := extractEmbedded(embeddedFS, "config/regex_rules.yaml", rulesDest); err != nil {
-			return fmt.Errorf("failed to extract regex_rules.yaml: %w", err)
-		}
+	if err := extractEmbedded(embeddedFS, "config/regex_rules.yaml", rulesDest); err != nil {
+		return fmt.Errorf("failed to extract regex_rules.yaml: %w", err)
 	}
 	fmt.Println("✓ Unpacked configuration and regex rules databases.")
 

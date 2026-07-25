@@ -11,7 +11,7 @@ It retrieves squashed container image filesystems directly from remote registrie
 - **Daemonless Operation**: No dependency on a local Docker Engine/daemon (`dockerd`). Runs cleanly in serverless, CI/CD, or headless environments.
 - **Embedded Python Subprocess**: No FastAPI or Uvicorn server processes to manage. The Go CLI scanner automatically spawns and communicates with the Python model loop sequentially via stdin/stdout JSON channels.
 - **One-Command Setup (`DockerHunter setup`)**: Verifies python3, initializes working directory (`~/.dockerhunter`), extracts python source scripts, builds a local virtual environment, installs PyTorch/transformers, and pre-caches the HuggingFace model.
-- **Support for Custom Signature Databases**: If `regexes.yaml` is present in the current working directory during setup, it is automatically copied to `~/.dockerhunter/regex_rules.yaml` to act as the scanner's signature rules database.
+- **Built-in Signatures Database**: Automatically packages and extracts the full signatures database (`regex_rules.yaml`) containing over 1100 validation patterns directly into `~/.dockerhunter/`.
 - **Tag Filtering (for `--all-tags` scans)**:
   - `--semver "<constraint>"`: Filter tags locally using semantic version constraints (e.g. `^3.18`).
   - `--latest <N>`: Pull and scan only the `N` most recently updated tags.
@@ -80,11 +80,11 @@ go install github.com/DarkSar7/DockerHunter@latest
 ---
 
 ### 2. Initialization (Setup)
-Run the setup command from the folder containing your custom `regexes.yaml` database (if you want to use custom rules):
+Run the setup command to initialize DockerHunter:
 ```bash
 DockerHunter setup
 ```
-Setup will create `~/.dockerhunter/` and configure Python, PyTorch, and your cached model.
+This automatically extracts the built-in configuration and signature database of 1100+ patterns to your home folder (`~/.dockerhunter/`) and sets up the Python virtual environment and AI model.
 
 ---
 
