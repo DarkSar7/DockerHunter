@@ -1,152 +1,183 @@
 # DockerHunter
 
-DockerHunter is a fast, daemonless OCI container registry secret scanner coupled with an AI validation service. 
+DockerHunter is a fast, daemonless OCI container registry secret scanner coupled with a sandboxed AI validation pipeline.
 
-It fetches squashed container image filesystems directly from remote registries without requiring Docker daemon (`dockerd`), Docker engine, or Docker CLI. It scans files line-by-line using a generic secret assignment regex, deduplicates findings, and verifies them in batches against the HuggingFace `bigcode/starpii` model to weed out placeholders and identify actual credentials.
-
----
-
-## Architecture
-
-DockerHunter consists of two independent components:
-1. **Go CLI Scanner**: Handles registry image downloading, layer squashing, walking files, matching regex, deduplication, batch validation requests, and immediate cleanup.
-2. **Python AI Validator**: A lightweight FastAPI wrapper around the `bigcode/starpii` model, validating candidate secrets in batches.
-
-```
-Repository/Image Reference
-            │
-            ▼ (remote.List tag enumeration if --all-tags)
-     Download Image (OciRegistrySource)
-            │
-            ▼
-   Reconstruct Filesystem (SquashedTree)
-            │
-            ▼
-      Walk File Tree (filetree.Walker)
-            │
-            ▼
-    Scan Lines (ExtractCandidates)
-            │
-            ▼
-     Deduplicate candidates
-            │
-            ▼
-Validate in batches (POST /validate) ──► StarPII NER Pipeline
-            │
-            ▼
-  Consolidated Results
-            │
-            ▼
-   Immediate Cleanup (img.Cleanup())
-```
+It retrieves squashed container image filesystems directly from remote registries without requiring a Docker daemon (`dockerd`), Docker engine, or Docker CLI. It scans files line-by-line using a generic secret assignment regex, deduplicates findings, and verifies them in batches against the HuggingFace `bigcode/starpii` model to weed out placeholders and identify actual credentials.
 
 ---
 
 ## Key Features
 
-- **Daemonless Operation**: No dependency on local Docker Engine/daemon (`dockerd`). Runs cleanly in offline, CI/CD, or headless environments.
-- **Repository-Wide Scanning**: Automatically lists and processes all available tags (`--all-tags`).
-- **Immediate Workspace Cleanup**: Deletes temp layers and squashed directories immediately after processing each tag, preventing disk space accumulation.
-- **Fault-Tolerant Scanning**: Skips failed or architecture-mismatched images and continues scanning remaining tags, displaying a complete errors list at the end.
-- **AI Classification**: Batches HTTP validation requests to StarPII, reducing network and model evaluation time.
-- **Attribution**: Annotates findings with the exact image and tag metadata.
+- **Daemonless Operation**: No dependency on a local Docker Engine/daemon (`dockerd`). Runs cleanly in serverless, CI/CD, or headless environments.
+- **Embedded Python Subprocess**: No FastAPI or Uvicorn server processes to manage. The Go CLI scanner automatically spawns and communicates with the Python model loop sequentially via stdin/stdout JSON channels.
+- **One-Command Setup (`DockerHunter setup`)**: Verifies python3, initializes working directory (`~/.dockerhunter`), extracts python source scripts, builds a local virtual environment, installs PyTorch/transformers, and pre-caches the HuggingFace model.
+- **Support for Custom Signature Databases**: If `regexes.yaml` is present in the current working directory during setup, it is automatically copied to `~/.dockerhunter/regex_rules.yaml` to act as the scanner's signature rules database.
+- **Tag Filtering (for `--all-tags` scans)**:
+  - `--semver "<constraint>"`: Filter tags locally using semantic version constraints (e.g. `^3.18`).
+  - `--latest <N>`: Pull and scan only the `N` most recently updated tags.
+  - `--since <date>`: Pull and scan tags created since a specific date (`YYYY-MM` or `YYYY-MM-DD`).
+  - `--max-tags <N>`: Cap the tag scan list to a maximum of `N` tags.
+- **Docker Hub API Optimization**: When sorting tags by timestamps, DockerHunter queries the Docker Hub API directly. This returns sorted tag timestamps for hundreds of tags in a single request (under 1 second), bypassing OCI metadata connection limits. It falls back to concurrent OCI manifest lookups with timeouts for other registries.
+- **In-App Registry Account Scheduler**:
+  - Store multiple credentials directly inside `~/.dockerhunter/config.yaml`.
+  - Distributes traffic across accounts using a round-robin schedule.
+  - Limits retry loops on HTTP 429 (Too Many Requests) to the count of configured accounts to prevent infinite loops.
+  - Intercepts registry responses proactively using a custom `http.RoundTripper` wrapper to read rate-limit headers (`RateLimit-Remaining: 0`). Rotates accounts *before* hitting HTTP 429 failures.
+  - Thread-safe (`sync.RWMutex`) statistics tracking and cooldown rotation.
+- **Output Customization**:
+  - `--output`, `-o`: Saves final scan results directly to a file (text report or JSON).
+  - `--pre`: Saves candidates matching signature rules to `pre.json` *before* they are sent to the AI validator.
+
+---
+
+## Architecture Flow
+
+```
+User (CLI Command)
+        │
+        ├── DockerHunter setup  ──► Initialize ~/.dockerhunter, extract validator scripts,
+        │                           build python venv, cache StarPII pipeline
+        │
+        └── DockerHunter scan   ──► Read configs, query registry tags, apply filters
+                                    │
+                                    ▼ (rotates accounts on HTTP 429 / remaining=0 headers)
+                             Pull Squashed Layers
+                                    │
+                                    ▼
+                             Walk Filesystem
+                                    │
+                                    ▼
+                            Extract Candidates
+                                    │
+                                    ▼ (De-duplicate by variable, value, file, line)
+                             Stream to Pipeline
+                                    │
+                                    ▼ (Batch Builder with 200ms timeout)
+                             JSON Stdin/Stdout
+                                    │
+                                    ▼
+                          StarPII Subprocess (main.py)
+                                    │
+                                    ▼
+                             Formatted Report
+```
 
 ---
 
 ## Installation & Setup
 
-### 1. Python AI Validator Service
-Ensure Python 3.11+ is installed.
+### 1. Installation
+Install the DockerHunter binary globally via Go:
+```bash
+# Optional: Set GOPRIVATE if pulling from a private repository
+export GOPRIVATE="github.com/DarkSar7/*"
+
+# Install latest executable to $GOPATH/bin/DockerHunter
+go install github.com/DarkSar7/DockerHunter@latest
+```
+*(Ensure `~/go/bin` is in your terminal's `$PATH` or copy it to `/usr/local/bin/DockerHunter` for global access).*
+
+---
+
+### 2. Initialization (Setup)
+Run the setup command from the folder containing your custom `regexes.yaml` database (if you want to use custom rules):
+```bash
+DockerHunter setup
+```
+Setup will create `~/.dockerhunter/` and configure Python, PyTorch, and your cached model.
+
+---
+
+### 3. Adding Credentials & Configuration
+Open the configuration file `~/.dockerhunter/config.yaml` to specify your HuggingFace Token, Registry Credentials, and fallback settings:
 
 ```bash
-cd validator
-# Set up virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install dependencies (CPU-only Torch is recommended for faster setup)
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
+nano ~/.dockerhunter/config.yaml
 ```
 
-#### Configuration
-Set your configuration inside `validator/config/config.yaml`:
+**Example Config Structure:**
 ```yaml
-server:
-  host: "0.0.0.0"
-  port: 9001
+validator:
+  model_name: "bigcode/starpii"
+  cache_dir: "~/.dockerhunter/models"
+  executable_path: "/usr/bin/python3"
+  huggingface_token: "your_huggingface_auth_token_here"
 
-huggingface:
-  token: "" # Gated model token (loaded from HUGGINGFACEHUB_API_TOKEN env var if empty)
-  model:
-    name: "bigcode/starpii"
-    cache_dir: "/app/models"
-    use_auth_token: true
-```
+pipeline:
+  batch_size: 100
+  batch_timeout_ms: 200
+  worker_count: 8
 
-#### Run Validator
-```bash
-python main.py
+scanner:
+  regex_rules_path: "~/.dockerhunter/regex_rules.yaml"
+  output_format: "text"
+
+authentication:
+  default_cooldown: 6h
+  anonymous_fallback: true
+
+registries:
+  docker.io:
+    accounts:
+      - username: "dockerhub_user_1"
+        token: "dckr_pat_your_first_token_here"
+      - username: "dockerhub_user_2"
+        token: "dckr_pat_your_second_token_here"
+  ghcr.io:
+    accounts:
+      - username: "github_user"
+        token: "ghp_your_personal_token_here"
 ```
 
 ---
 
-### 2. Go CLI Scanner
-Ensure Go 1.24+ is installed.
-
-```bash
-# Build the binary
-go build -o dockerhunter main.go
-
-# Run unit tests
-go test ./pkg/...
-```
-
----
-
-## Usage
+## Usage Guide
 
 ### Commands and Flags
 
 ```bash
-./dockerhunter scan [image_reference] [flags]
+DockerHunter scan [image_reference] [flags]
 ```
 
-- `--all-tags`: Scans all tags in the repository (e.g. `dockerhunter scan alpine --all-tags`).
-- `--json`: Outputs final results in JSON format.
+- `--all-tags`: Scans all tags in the repository.
 - `--format`: Output format, accepts `text` or `json` (default `text`).
-- `--validator-url`, `-u`: Specify validator service URL (default `http://localhost:9001`).
-- `--batch-size`, `-b`: Invalidation request batch size (default `100`).
+- `--output`, `-o`: File path to save final scan results.
+- `--pre`: Saves matching candidate credentials to `pre.json` before they are sent to the AI validator.
+- `--semver "<constraint>"`: Scan only tags matching semantic version constraints (e.g. `^3.18`).
+- `--latest <N>`: Scan only the `N` most recently updated tags.
+- `--since <YYYY-MM or YYYY-MM-DD>`: Scan only tags created since the specified date.
+- `--max-tags <N>`: Caps the tag scan list to a maximum of `N` tags.
 
-### Examples
+---
 
-#### Scan a Single Tag
+## Examples
+
+### 1. Scan a Single Image Tag
 ```bash
-./dockerhunter scan alpine:latest
+DockerHunter scan alpine:latest
 ```
 
-#### Scan a Repository with All Tags
+### 2. Save Results (JSON Format) to a File
 ```bash
-./dockerhunter scan hello-world --all-tags
+DockerHunter scan alpine:latest --format json --output results.json
 ```
 
-#### JSON Output Format
+### 3. Dump Pre-AI Candidates for Analysis
 ```bash
-./dockerhunter scan alpine:latest --json
+DockerHunter scan lyft/flyteadmin-stages:2 --pre
+```
+*(Creates `pre.json` containing candidates that matched your regex signatures before StarPII filtered out placeholders).*
+
+### 4. Filter Registry Scans (Latest Tags & Limits)
+Query the 5 most recently created tags of alpine:
+```bash
+DockerHunter scan alpine --all-tags --latest 5
 ```
 
-```json
-[
-  {
-    "image": "index.docker.io/library/alpine",
-    "tag": "latest",
-    "file": "/etc/shadow",
-    "line": 15,
-    "variable": "root",
-    "value": "yoursecretpasshash",
-    "context": "root:yoursecretpasshash:18776:0:99999:7:::"
-  }
-]
+### 5. Filter Registry Scans (Semantic Versions & Caps)
+Scan alpine tags matching `^3.18` and cap the execution limit to the first 3 matches:
+```bash
+DockerHunter scan alpine --all-tags --semver "^3.18" --max-tags 3
 ```
 
 ---
