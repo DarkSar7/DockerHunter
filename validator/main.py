@@ -8,6 +8,8 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from app.ner import load_model
 from app.config import ensure_default_config
 
+VALID_ENTITIES = {"key", "password", "token", "secret"}
+
 def truncate_context(context, value, max_len=100):
 	if not context:
 		return value
@@ -43,11 +45,13 @@ def main():
 		if not line:
 			continue
 		
+		batch_id = ""
 		try:
 			req = json.loads(line)
+			batch_id = req.get("batch_id", "")
 			candidates = req.get("candidates", [])
 			if not candidates:
-				print(json.dumps({"results": []}))
+				print(json.dumps({"batch_id": batch_id, "results": []}))
 				sys.stdout.flush()
 				continue
 			
@@ -59,18 +63,39 @@ def main():
 				truncated = truncate_context(ctx, val, max_len=100)
 				texts.append(truncated if truncated.strip() else val)
 
-			# Perform pipeline inference
-			pipeline_results = model_pipeline(texts)
-
-			if len(texts) == 1 and not isinstance(pipeline_results, list):
-				pipeline_results = [pipeline_results]
+			# Perform pipeline inference with per-item fallback isolation
+			try:
+				pipeline_results = model_pipeline(texts)
+				if len(texts) == 1 and not isinstance(pipeline_results, list):
+					pipeline_results = [pipeline_results]
+			except Exception as batch_err:
+				print(f"Batch inference failed: {batch_err}. Falling back to single-item validation...", file=sys.stderr)
+				pipeline_results = []
+				for t in texts:
+					try:
+						single_res = model_pipeline(t)
+						if not isinstance(single_res, list):
+							single_res = [single_res]
+						pipeline_results.append(single_res[0] if single_res else [])
+					except Exception as single_err:
+						print(f"Single-item inference failed for text {t!r}: {single_err}", file=sys.stderr)
+						pipeline_results.append([])
 
 			results = []
 			for candidate, model_res in zip(candidates, pipeline_results):
 				detected_words = []
 				if isinstance(model_res, list):
+					# Filter to keep only secret/credential-relevant entities (prevent false positives on Email/IP/Name/Username)
+					filtered_res = []
+					for ent in model_res:
+						ent_type = ent.get("entity", "").lower()
+						if ent_type.startswith("b-") or ent_type.startswith("i-"):
+							ent_type = ent_type[2:]
+						if ent_type in VALID_ENTITIES:
+							filtered_res.append(ent)
+
 					# Reconstruct words from contiguous token offsets (tokenizer-independent)
-					sorted_ents = sorted(model_res, key=lambda x: x.get("start", 0))
+					sorted_ents = sorted(filtered_res, key=lambda x: x.get("start", 0))
 					reconstructed = []
 					curr_word = ""
 					curr_end = -1
@@ -110,12 +135,12 @@ def main():
 					"valid": is_valid
 				})
 
-			print(json.dumps({"results": results}))
+			print(json.dumps({"batch_id": batch_id, "results": results}))
 			sys.stdout.flush()
 		except Exception as e:
 			print(f"Error processing batch: {e}", file=sys.stderr)
-			# Send back empty results so Go pipeline doesn't block
-			print(json.dumps({"results": []}))
+			# Send back empty results with matching batch_id so Go pipeline doesn't block or desync
+			print(json.dumps({"batch_id": batch_id, "results": []}))
 			sys.stdout.flush()
 
 if __name__ == "__main__":

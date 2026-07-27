@@ -32,13 +32,14 @@ class TestValidatorStdinStdout(unittest.TestCase):
 		# Mock pipeline returns detected words: word "supersecret" in the first context
 		mock_pipeline = MagicMock()
 		mock_pipeline.side_effect = lambda texts: [
-			[{"word": "supersecret", "entity_group": "secret", "score": 0.99}], # First text
+			[{"word": "supersecret", "entity": "secret", "score": 0.99}], # First text
 			[] # Second text
 		]
 		mock_load_model.return_value = mock_pipeline
 
 		# Set up mock stdin/stdout
 		input_data = {
+			"batch_id": "test-batch-123",
 			"candidates": [
 				{
 					"image": "lyft/clutch",
@@ -73,6 +74,8 @@ class TestValidatorStdinStdout(unittest.TestCase):
 		self.assertEqual(len(output_lines), 1)
 
 		resp = json.loads(output_lines[0])
+		self.assertEqual(resp.get("batch_id"), "test-batch-123")
+		
 		results = resp.get("results", [])
 		self.assertEqual(len(results), 2)
 		

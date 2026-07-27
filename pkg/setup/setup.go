@@ -25,7 +25,7 @@ func RunSetup(embeddedFS embed.FS) error {
 		return fmt.Errorf("failed to get user home directory: %w", err)
 	}
 	baseDir := filepath.Join(home, ".dockerhunter")
-	if err := os.MkdirAll(baseDir, 0755); err != nil {
+	if err := os.MkdirAll(baseDir, 0700); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", baseDir, err)
 	}
 	fmt.Printf("✓ Initialized working directory: %s\n", baseDir)
@@ -82,11 +82,10 @@ func RunSetup(embeddedFS embed.FS) error {
 	fmt.Println("Pre-downloading HuggingFace model bigcode/starpii...")
 	pyPath := filepath.Join(venvDir, "bin", "python")
 	
-	hfToken := os.Getenv("HUGGINGFACEHUB_API_TOKEN")
-	downloadScript := fmt.Sprintf(`
+	downloadScript := `
 import os
 from transformers import pipeline
-token = os.environ.get("HUGGINGFACEHUB_API_TOKEN", "%s")
+token = os.environ.get("HUGGINGFACEHUB_API_TOKEN")
 try:
     print("Caching Hugging Face pipeline...")
     pipeline("ner", model="bigcode/starpii", token=token if token else None)
@@ -94,12 +93,14 @@ try:
 except Exception as e:
     print(f"⚠️  Could not pre-cache model: {e}")
     print("Setup will complete, but model will download on the first scan.")
-`, hfToken)
+`
 
 	cmd = exec.Command(pyPath, "-c", downloadScript)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = os.Environ()
+	
+	// Securely pass the HUGGINGFACEHUB_API_TOKEN in the environment
+	cmd.Env = append(os.Environ(), "HUGGINGFACEHUB_API_TOKEN="+os.Getenv("HUGGINGFACEHUB_API_TOKEN"))
 	_ = cmd.Run() // Let failure print warnings but proceed
 
 	fmt.Println("\nSetup complete! You can now run:")
@@ -114,7 +115,7 @@ func copyFile(src, dest string) error {
 	}
 	defer srcFile.Close()
 
-	destFile, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	destFile, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
@@ -136,7 +137,7 @@ func extractEmbedded(fs embed.FS, src, dest string) error {
 	}
 	defer srcFile.Close()
 
-	destFile, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	destFile, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}

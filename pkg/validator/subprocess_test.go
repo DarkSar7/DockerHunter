@@ -31,7 +31,7 @@ while True:
             'candidate': c,
             'valid': 'secret' in c.get('value', '').lower()
         })
-    print(json.dumps({'results': results}))
+    print(json.dumps({'batch_id': req.get('batch_id', ''), 'results': results}))
     sys.stdout.flush()
 `
 	if err := os.WriteFile(mockScript, []byte(scriptContent), 0644); err != nil {

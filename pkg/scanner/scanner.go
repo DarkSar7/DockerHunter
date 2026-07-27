@@ -2,16 +2,17 @@ package scanner
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/anchore/stereoscope"
@@ -330,20 +331,22 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 				}
 				defer fileReader.Close()
 
-				scanner := bufio.NewScanner(fileReader)
+				isBin, prefix, err := isBinaryReader(fileReader)
+				if err != nil {
+					return nil
+				}
+				if isBin {
+					return nil
+				}
+
+				fullReader := io.MultiReader(bytes.NewReader(prefix), fileReader)
+				scanner := bufio.NewScanner(fullReader)
+				scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+
 				lineNum := 0
-				isBin := false
-				
 				for scanner.Scan() {
 					lineNum++
 					line := scanner.Text()
-
-					if lineNum == 1 {
-						if strings.ContainsRune(line, 0) || !utf8.ValidString(line) {
-							isBin = true
-							break
-						}
-					}
 
 					if len(line) > 10000 {
 						continue
@@ -361,9 +364,9 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 						}
 					}
 				}
-				
-				if isBin {
-					return nil
+
+				if err := scanner.Err(); err != nil {
+					results.Errors = append(results.Errors, fmt.Sprintf("Error scanning file %s: %v", filePath, err))
 				}
 
 				return nil
@@ -374,8 +377,9 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 	}
 
 	// Close the pipeline and collect findings
-	findings, preAICandidates := pipeline.Close()
+	findings, preAICandidates, pipeErrors := pipeline.Close()
 	results.Findings = findings
+	results.Errors = append(results.Errors, pipeErrors...)
 
 	if opts.Pre {
 		fmt.Println("Writing pre-AI validation candidates to pre.json...")
@@ -671,4 +675,19 @@ func isRateLimitError(err error) bool {
 	}
 	errStr := strings.ToUpper(err.Error())
 	return strings.Contains(errStr, "TOOMANYREQUESTS") || strings.Contains(errStr, "429")
+}
+
+func isBinaryReader(r io.Reader) (bool, []byte, error) {
+	buf := make([]byte, 8000)
+	n, err := r.Read(buf)
+	if err != nil && err != io.EOF {
+		return false, nil, err
+	}
+	prefix := buf[:n]
+	for _, b := range prefix {
+		if b == 0 {
+			return true, prefix, nil
+		}
+	}
+	return false, prefix, nil
 }

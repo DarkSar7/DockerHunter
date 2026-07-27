@@ -1,15 +1,19 @@
 package regex
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/DarkSar7/DockerHunter/pkg/config"
 	"github.com/DarkSar7/DockerHunter/pkg/types"
 )
 
-// GeneralPattern is the generic regex chosen to match secret assignments.
-var GeneralPattern = regexp.MustCompile(`(?i)(\"|')?([a-z0-9_-]+)?((key|pass|user|username|pwd|credentials|auth|password|pwd|Ldap|Jenkins|ftp|dotfiles|JDBC|config|connectionstring|ssh|creds|secret|cred|access|Bearer|token|passwd|api|admin|private|bash|aws|s3|cookie)){1,}([a-z0-9 _[:space:]-]+)?(\"|')?(=>|=|:|,|\\+)(( )?(\"|'|return|{))?([a-z0-9 _[:space:]-=\.])+(( )?(\"|'|return|{))`)
+// GeneralPattern is the generic regex chosen to match secret assignments, using named groups for robustness.
+var GeneralPattern = regexp.MustCompile(`(?i)(\"|')?([a-z0-9_-]+)?((key|pass|user|username|pwd|credentials|auth|password|pwd|Ldap|Jenkins|ftp|dotfiles|JDBC|config|connectionstring|ssh|creds|secret|cred|access|Bearer|token|passwd|api|admin|private|bash|aws|s3|cookie)){1,}([a-z0-9 _[:space:]-]+)?(\"|')?(?P<op>=>|=|:|,|\\+)(( )?(\"|'|return|{))?([a-z0-9 _[:space:]-=\.])+(?P<close>( )?(\"|'|return|{))`)
+
+var warnOnce sync.Once
 
 // CompiledRules holds pre-compiled regex patterns for each signature rule.
 type CompiledRules struct {
@@ -45,6 +49,9 @@ func CompileRules(rules *config.RegexRules) *CompiledRules {
 // MatchRules checks if a candidate matches any signature validation rule.
 func MatchRules(variable, value, context string, cr *CompiledRules) bool {
 	if cr == nil || len(cr.Signatures) == 0 {
+		warnOnce.Do(func() {
+			fmt.Println("⚠️  Warning: No signature rules loaded. Scanner is running in fail-open mode (sending all candidates to AI validator).")
+		})
 		return true // If no rules loaded, pass it through
 	}
 
@@ -63,15 +70,23 @@ func ExtractCandidates(image, tag, file string, lineNum int, context string) []t
 		return nil
 	}
 
+	opIndex := GeneralPattern.SubexpIndex("op")
+	closeIndex := GeneralPattern.SubexpIndex("close")
+
 	var candidates []types.Candidate
 	for _, locs := range locsList {
-		if len(locs) < 26 {
+		// Verify matches have captured all named groups
+		maxIndex := opIndex
+		if closeIndex > maxIndex {
+			maxIndex = closeIndex
+		}
+		if len(locs) <= 2*maxIndex+1 {
 			continue
 		}
 
 		start := locs[0]
-		opStart, opEnd := locs[14], locs[15]
-		closeStart := locs[24]
+		opStart, opEnd := locs[2*opIndex], locs[2*opIndex+1]
+		closeStart := locs[2*closeIndex]
 
 		if opStart == -1 || opEnd == -1 {
 			continue

@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -23,6 +24,7 @@ type Pipeline struct {
 	wgPipeline             sync.WaitGroup
 	findings               []types.Finding
 	preAICandidates        []types.Candidate
+	errors                 []string
 	collectPre             bool
 	mu                     sync.Mutex
 }
@@ -50,6 +52,7 @@ func NewPipeline(val validator.Validator, rules *regex.CompiledRules, workerCoun
 		batchSize:              batchSize,
 		batchTimeout:           timeout,
 		preAICandidates:        []types.Candidate{},
+		errors:                 []string{},
 	}
 }
 
@@ -91,13 +94,13 @@ func (p *Pipeline) Push(c types.Candidate) {
 }
 
 // Close tells the pipeline that extraction has completed and blocks until all results are gathered.
-func (p *Pipeline) Close() ([]types.Finding, []types.Candidate) {
+func (p *Pipeline) Close() ([]types.Finding, []types.Candidate, []string) {
 	close(p.candidateChan)
 	p.wgPipeline.Wait()
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.findings, p.preAICandidates
+	return p.findings, p.preAICandidates, p.errors
 }
 
 func (p *Pipeline) workerRegexValidation() {
@@ -151,7 +154,9 @@ func (p *Pipeline) workerValidatorCaller() {
 	for batch := range p.batchChan {
 		findings, err := p.validator.Validate(batch)
 		if err != nil {
-			// Fail silently in pipeline; let scanner proceed
+			p.mu.Lock()
+			p.errors = append(p.errors, fmt.Sprintf("AI Validation error on batch: %v", err))
+			p.mu.Unlock()
 			continue
 		}
 		p.resultChan <- findings
