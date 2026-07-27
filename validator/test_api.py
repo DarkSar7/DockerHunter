@@ -139,5 +139,56 @@ class TestValidatorStdinStdout(unittest.TestCase):
 		# Second candidate (PASSWORD) should be valid
 		self.assertTrue(results[1]["valid"])
 
+	@patch('main.load_model')
+	def test_placeholder_filtering(self, mock_load_model):
+		# Mock pipeline returns valid entities, but the text contains obvious placeholders
+		mock_pipeline = MagicMock()
+		mock_pipeline.side_effect = lambda texts: [
+			[{"word": "714a0cfb-0000-0000-0000-2959c8b9a684", "entity_group": "secret", "score": 0.99}],
+			[{"word": "9drTJvcXLB89EXAMPLELB8923FB892xMFI", "entity_group": "secret", "score": 0.99}]
+		]
+		mock_load_model.return_value = mock_pipeline
+
+		input_data = {
+			"batch_id": "test-batch-789",
+			"candidates": [
+				{
+					"image": "test",
+					"tag": "latest",
+					"file": "main.go",
+					"line": 5,
+					"variable": "LockToken",
+					"value": "714a0cfb-0000-0000-0000-2959c8b9a684",
+					"context": "token = '714a0cfb-0000-0000-0000-2959c8b9a684'"
+				},
+				{
+					"image": "test",
+					"tag": "latest",
+					"file": "main.go",
+					"line": 6,
+					"variable": "SecretAccessKey",
+					"value": "9drTJvcXLB89EXAMPLELB8923FB892xMFI",
+					"context": "key = '9drTJvcXLB89EXAMPLELB8923FB892xMFI'"
+				}
+			]
+		}
+
+		mock_stdin = StringIO(json.dumps(input_data) + "\n\n")
+		mock_stdout = StringIO()
+
+		with patch('sys.stdin', mock_stdin), patch('sys.stdout', mock_stdout):
+			main()
+
+		output_lines = mock_stdout.getvalue().strip().split("\n")
+		self.assertEqual(len(output_lines), 1)
+
+		resp = json.loads(output_lines[0])
+		results = resp.get("results", [])
+		self.assertEqual(len(results), 2)
+
+		# Both candidates should be marked as invalid because they are obvious placeholders
+		self.assertFalse(results[0]["valid"])
+		self.assertFalse(results[1]["valid"])
+
 if __name__ == '__main__':
 	unittest.main()

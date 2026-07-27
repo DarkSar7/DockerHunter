@@ -10,6 +10,30 @@ from app.config import ensure_default_config
 
 VALID_ENTITIES = {"key", "password", "token", "secret"}
 
+def is_obvious_placeholder(val):
+	val_lower = val.lower()
+	
+	# 1. Obvious template/placeholder keywords
+	placeholders = [
+		"example", "dummy", "placeholder", "your-", "your_", "my-secret", 
+		"mock_", "_token_here", "token_name", "secret_name", "password_here", "temp_"
+	]
+	for p in placeholders:
+		if p in val_lower:
+			return True
+			
+	# 2. Sequential/structured repeating placeholder components (like -0000-0000- or xxxxxxx)
+	if "0000-0000-0000" in val_lower or "xxxx-" in val_lower or "yyyy-" in val_lower:
+		return True
+		
+	# 3. Simple character repetitions or sequences
+	if val_lower in {"123456", "123456789", "1234567890", "abcdef"}:
+		return True
+	if len(val_lower) >= 4 and all(c == val_lower[0] for c in val_lower):
+		return True
+		
+	return False
+
 def truncate_context(context, value, max_len=100):
 	if not context:
 		return value
@@ -123,12 +147,13 @@ def main():
 				cand_val_lower = candidate.get("value", "").strip().lower()
 				is_valid = False
 				
-				for word in detected_words:
-					if len(word) >= 4 and (word in cand_val_lower or cand_val_lower in word):
-						coverage = len(word) / len(cand_val_lower)
-						if coverage >= 0.4 or cand_val_lower in word:
-							is_valid = True
-							break
+				if not is_obvious_placeholder(cand_val_lower):
+					for word in detected_words:
+						if len(word) >= 4 and (word in cand_val_lower or cand_val_lower in word):
+							coverage = len(word) / len(cand_val_lower)
+							if coverage >= 0.4 or cand_val_lower in word:
+								is_valid = True
+								break
 				
 				results.append({
 					"candidate": candidate,
