@@ -158,21 +158,21 @@ func extractDirRecursive(fs embed.FS, srcDir, destBase string) error {
 		destPath := filepath.Join(destBase, srcPath)
 
 		if entry.IsDir() {
-			if err := os.MkdirAll(destPath, 0755); err != nil {
+			if err := os.MkdirAll(destPath, 0700); err != nil {
 				return err
 			}
 			if err := extractDirRecursive(fs, srcPath, destBase); err != nil {
 				return err
 			}
 		} else {
-			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(destPath), 0700); err != nil {
 				return err
 			}
 			srcFile, err := fs.Open(srcPath)
 			if err != nil {
 				return err
 			}
-			destFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			destFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 			if err != nil {
 				srcFile.Close()
 				return err

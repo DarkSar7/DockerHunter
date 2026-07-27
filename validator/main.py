@@ -88,7 +88,7 @@ def main():
 					# Filter to keep only secret/credential-relevant entities (prevent false positives on Email/IP/Name/Username)
 					filtered_res = []
 					for ent in model_res:
-						ent_type = ent.get("entity", "").lower()
+						ent_type = (ent.get("entity_group") or ent.get("entity") or "").lower()
 						if ent_type.startswith("b-") or ent_type.startswith("i-"):
 							ent_type = ent_type[2:]
 						if ent_type in VALID_ENTITIES:

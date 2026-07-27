@@ -344,11 +344,13 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 				scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
 				lineNum := 0
+				hasSkippedLongLines := false
 				for scanner.Scan() {
 					lineNum++
 					line := scanner.Text()
 
 					if len(line) > 10000 {
+						hasSkippedLongLines = true
 						continue
 					}
 
@@ -363,6 +365,10 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 							pipeline.Push(c)
 						}
 					}
+				}
+
+				if hasSkippedLongLines {
+					results.Errors = append(results.Errors, fmt.Sprintf("Warning: Some lines in file %s were skipped because they exceeded the 10,000 character limit.", filePath))
 				}
 
 				if err := scanner.Err(); err != nil {

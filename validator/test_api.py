@@ -32,7 +32,7 @@ class TestValidatorStdinStdout(unittest.TestCase):
 		# Mock pipeline returns detected words: word "supersecret" in the first context
 		mock_pipeline = MagicMock()
 		mock_pipeline.side_effect = lambda texts: [
-			[{"word": "supersecret", "entity": "secret", "score": 0.99}], # First text
+			[{"word": "supersecret", "entity_group": "secret", "score": 0.99}], # First text
 			[] # Second text
 		]
 		mock_load_model.return_value = mock_pipeline
@@ -85,6 +85,59 @@ class TestValidatorStdinStdout(unittest.TestCase):
 		
 		# Second candidate should be invalid
 		self.assertFalse(results[1]["valid"])
+
+	@patch('main.load_model')
+	def test_entity_discrimination(self, mock_load_model):
+		# Mock pipeline returns NAME (invalid) for first text and PASSWORD (valid) for second text
+		mock_pipeline = MagicMock()
+		mock_pipeline.side_effect = lambda texts: [
+			[{"word": "john_doe", "entity_group": "NAME", "score": 0.99}],
+			[{"word": "supersecretpassword", "entity_group": "PASSWORD", "score": 0.99}]
+		]
+		mock_load_model.return_value = mock_pipeline
+
+		input_data = {
+			"batch_id": "test-batch-456",
+			"candidates": [
+				{
+					"image": "test",
+					"tag": "latest",
+					"file": "main.go",
+					"line": 5,
+					"variable": "USER_NAME",
+					"value": "john_doe",
+					"context": "username = 'john_doe'"
+				},
+				{
+					"image": "test",
+					"tag": "latest",
+					"file": "main.go",
+					"line": 6,
+					"variable": "DB_PASS",
+					"value": "supersecretpassword",
+					"context": "db_pass = 'supersecretpassword'"
+				}
+			]
+		}
+
+		mock_stdin = StringIO(json.dumps(input_data) + "\n\n")
+		mock_stdout = StringIO()
+
+		with patch('sys.stdin', mock_stdin), patch('sys.stdout', mock_stdout):
+			main()
+
+		output_lines = mock_stdout.getvalue().strip().split("\n")
+		self.assertEqual(len(output_lines), 1)
+
+		resp = json.loads(output_lines[0])
+		results = resp.get("results", [])
+		self.assertEqual(len(results), 2)
+
+		# First candidate (NAME) should be filtered out / invalid
+		self.assertFalse(results[0]["valid"])
+
+		# Second candidate (PASSWORD) should be valid
+		self.assertTrue(results[1]["valid"])
 
 if __name__ == '__main__':
 	unittest.main()
