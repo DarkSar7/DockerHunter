@@ -310,7 +310,7 @@ func parseHeaderInt(h string) int {
 }
 
 func normalizeRegistry(registry string) string {
-	registry = strings.ToLower(registry)
+	registry = strings.ToLower(strings.TrimSpace(registry))
 	if registry == "index.docker.io" {
 		return "docker.io"
 	}

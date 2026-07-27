@@ -81,6 +81,7 @@ func (p *Pipeline) Start() {
 	go p.workerValidatorCaller()
 
 	// 4. Start Results Collector
+	p.wgPipeline.Add(1)
 	go p.collectFindings()
 }
 
@@ -93,9 +94,6 @@ func (p *Pipeline) Push(c types.Candidate) {
 func (p *Pipeline) Close() ([]types.Finding, []types.Candidate) {
 	close(p.candidateChan)
 	p.wgPipeline.Wait()
-	
-	// Small sleep to ensure the collector has finished appending
-	time.Sleep(10 * time.Millisecond)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -161,6 +159,7 @@ func (p *Pipeline) workerValidatorCaller() {
 }
 
 func (p *Pipeline) collectFindings() {
+	defer p.wgPipeline.Done()
 	for res := range p.resultChan {
 		p.mu.Lock()
 		p.findings = append(p.findings, res...)

@@ -69,15 +69,41 @@ def main():
 			for candidate, model_res in zip(candidates, pipeline_results):
 				detected_words = []
 				if isinstance(model_res, list):
-					detected_words = [item["word"].strip().lower() for item in model_res if "word" in item]
+					# Reconstruct words from contiguous token offsets (tokenizer-independent)
+					sorted_ents = sorted(model_res, key=lambda x: x.get("start", 0))
+					reconstructed = []
+					curr_word = ""
+					curr_end = -1
+					for ent in sorted_ents:
+						start = ent.get("start", 0)
+						end = ent.get("end", 0)
+						word = ent.get("word", "")
+						
+						if curr_end == -1:
+							curr_word = word
+							curr_end = end
+						elif start == curr_end:
+							curr_word += word
+							curr_end = end
+						else:
+							if curr_word:
+								reconstructed.append(curr_word)
+							curr_word = word
+							curr_end = end
+					if curr_word:
+						reconstructed.append(curr_word)
+					
+					detected_words = [w.strip().lower() for w in reconstructed if w.strip()]
 				
 				cand_val_lower = candidate.get("value", "").strip().lower()
 				is_valid = False
 				
 				for word in detected_words:
-					if word in cand_val_lower or cand_val_lower in word:
-						is_valid = True
-						break
+					if len(word) >= 4 and (word in cand_val_lower or cand_val_lower in word):
+						coverage = len(word) / len(cand_val_lower)
+						if coverage >= 0.4 or cand_val_lower in word:
+							is_valid = True
+							break
 				
 				results.append({
 					"candidate": candidate,

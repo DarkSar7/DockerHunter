@@ -467,7 +467,12 @@ func filterSemver(tags []string, constraintStr string) []string {
 func fetchTagsCreationTimes(repoName string, tags []string, authManager *auth.AuthManager) []tagWithTime {
 	fmt.Printf("Fetching creation timestamps for %d tags...\n", len(tags))
 	
-	sem := make(chan struct{}, 8) // concurrency limit of 8
+	tagChan := make(chan string, len(tags))
+	for _, tag := range tags {
+		tagChan <- tag
+	}
+	close(tagChan)
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var results []tagWithTime
@@ -484,78 +489,89 @@ func fetchTagsCreationTimes(repoName string, tags []string, authManager *auth.Au
 		maxRetries = 0
 	}
 
-	for _, tag := range tags {
+	workerCount := 8
+	if len(tags) < workerCount {
+		workerCount = len(tags)
+	}
+
+	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
-		go func(t string) {
+		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+			for t := range tagChan {
+				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-			defer cancel()
-
-			ref, err := name.ParseReference(fmt.Sprintf("%s:%s", repoName, t))
-			if err != nil {
-				return
-			}
-			
-			var desc *remote.Descriptor
-			for attempt := 0; attempt <= maxRetries; attempt++ {
-				a, username, authErr := authManager.GetAuthenticator(registry)
-				if authErr != nil {
-					err = authErr
-					break
-				}
-
-				optsList := getRemoteOptions(authManager, a)
-				optsList = append(optsList, remote.WithContext(ctx))
-
-				desc, err = remote.Get(ref, optsList...)
+				ref, err := name.ParseReference(fmt.Sprintf("%s:%s", repoName, t))
 				if err != nil {
-					if isRateLimitError(err) && username != "" {
-						authManager.ReportRateLimit(registry, username, 0)
-						continue
+					cancel()
+					continue
+				}
+				
+				var desc *remote.Descriptor
+				for attempt := 0; attempt <= maxRetries; attempt++ {
+					a, username, authErr := authManager.GetAuthenticator(registry)
+					if authErr != nil {
+						err = authErr
+						break
+					}
+
+					optsList := getRemoteOptions(authManager, a)
+					optsList = append(optsList, remote.WithContext(ctx))
+
+					desc, err = remote.Get(ref, optsList...)
+					if err != nil {
+						if isRateLimitError(err) && username != "" {
+							authManager.ReportRateLimit(registry, username, 0)
+							continue
+						}
+						break
 					}
 					break
 				}
-				break
-			}
 
-			if err != nil {
-				return
-			}
-
-			img, err := desc.Image()
-			if err != nil {
-				index, indexErr := desc.ImageIndex()
-				if indexErr != nil {
-					return
-				}
-				manifest, manifestErr := index.IndexManifest()
-				if manifestErr != nil {
-					return
-				}
-				if len(manifest.Manifests) == 0 {
-					return
-				}
-				img, err = index.Image(manifest.Manifests[0].Digest)
 				if err != nil {
-					return
+					cancel()
+					continue
 				}
-			}
 
-			cfg, err := img.ConfigFile()
-			if err != nil {
-				return
-			}
+				img, err := desc.Image()
+				if err != nil {
+					index, indexErr := desc.ImageIndex()
+					if indexErr != nil {
+						cancel()
+						continue
+					}
+					manifest, manifestErr := index.IndexManifest()
+					if manifestErr != nil {
+						cancel()
+						continue
+					}
+					if len(manifest.Manifests) == 0 {
+						cancel()
+						continue
+					}
+					img, err = index.Image(manifest.Manifests[0].Digest)
+					if err != nil {
+						cancel()
+						continue
+					}
+				}
 
-			mu.Lock()
-			results = append(results, tagWithTime{
-				tag:     t,
-				created: cfg.Created.Time,
-			})
-			mu.Unlock()
-		}(tag)
+				cfg, err := img.ConfigFile()
+				if err != nil {
+					cancel()
+					continue
+				}
+				cancel()
+
+				mu.Lock()
+				results = append(results, tagWithTime{
+					tag:     t,
+					created: cfg.Created.Time,
+				})
+				mu.Unlock()
+			}
+		}()
 	}
 
 	wg.Wait()

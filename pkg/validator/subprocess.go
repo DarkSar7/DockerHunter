@@ -39,10 +39,13 @@ func NewSubprocessValidator(pythonExe, scriptPath string) (*SubprocessValidator,
 		return nil, fmt.Errorf("failed to start python subprocess: %w", err)
 	}
 
+	scanner := bufio.NewScanner(stdoutPipe)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+
 	return &SubprocessValidator{
 		cmd:        cmd,
 		stdinPipe:  stdinPipe,
-		stdoutScan: bufio.NewScanner(stdoutPipe),
+		stdoutScan: scanner,
 	}, nil
 }
 

@@ -10,13 +10,14 @@ It retrieves squashed container image filesystems directly from remote registrie
 
 - **Daemonless Operation**: No dependency on a local Docker Engine/daemon (`dockerd`). Runs cleanly in serverless, CI/CD, or headless environments.
 - **Embedded Python Subprocess**: No FastAPI or Uvicorn server processes to manage. The Go CLI scanner automatically spawns and communicates with the Python model loop sequentially via stdin/stdout JSON channels.
-- **One-Command Setup (`DockerHunter setup`)**: Verifies python3, initializes working directory (`~/.dockerhunter`), extracts python source scripts, builds a local virtual environment, installs PyTorch/transformers, and pre-caches the HuggingFace model.
+- **One-Command Setup (`DockerHunter setup`)**: Verifies python3, initializes working directory (`~/.dockerhunter`), extracts python source scripts, builds a local virtual environment, installs PyTorch/transformers, and pre-caches the HuggingFace model. Requires access to the gated [bigcode/starpii](https://huggingface.co/bigcode/starpii) model repository.
 - **Built-in Signatures Database**: Automatically packages and extracts the full signatures database (`regex_rules.yaml`) containing over 1100 validation patterns directly into `~/.dockerhunter/`.
-- **Tag Filtering (for `--all-tags` scans)**:
+- **Tag Filtering & Bounded Concurrency (for `--all-tags` scans)**:
   - `--semver "<constraint>"`: Filter tags locally using semantic version constraints (e.g. `^3.18`).
   - `--latest <N>`: Pull and scan only the `N` most recently updated tags.
   - `--since <date>`: Pull and scan tags created since a specific date (`YYYY-MM` or `YYYY-MM-DD`).
   - `--max-tags <N>`: Cap the tag scan list to a maximum of `N` tags.
+  - **Worker Channel Pool**: Instead of spawning unstructured goroutines per tag, DockerHunter processes OCI queries through a dedicated worker pool (bounded to 8 concurrent channels) to prevent resource spikes and connection exhaustion.
 - **Docker Hub API Optimization**: When sorting tags by timestamps, DockerHunter queries the Docker Hub API directly. This returns sorted tag timestamps for hundreds of tags in a single request (under 1 second), bypassing OCI metadata connection limits. It falls back to concurrent OCI manifest lookups with timeouts for other registries.
 - **In-App Registry Account Scheduler**:
   - Store multiple credentials directly inside `~/.dockerhunter/config.yaml`.
@@ -69,9 +70,6 @@ User (CLI Command)
 ### 1. Installation
 Install the DockerHunter binary globally via Go:
 ```bash
-# Optional: Set GOPRIVATE if pulling from a private repository
-export GOPRIVATE="github.com/DarkSar7/*"
-
 # Install latest executable to $GOPATH/bin/DockerHunter
 go install github.com/DarkSar7/DockerHunter@latest
 ```
@@ -94,6 +92,13 @@ Open the configuration file `~/.dockerhunter/config.yaml` to specify your Huggin
 ```bash
 nano ~/.dockerhunter/config.yaml
 ```
+
+> [!IMPORTANT]
+> The AI Validator uses the gated model [bigcode/starpii](https://huggingface.co/bigcode/starpii).
+> You must:
+> 1. Create a Hugging Face account and accept the model's user agreement at [huggingface.co/bigcode/starpii](https://huggingface.co/bigcode/starpii).
+> 2. Generate a **Read-only Access Token** from your Hugging Face account settings.
+> 3. Paste the token into the `huggingface_token` field of `config.yaml`.
 
 **Example Config Structure:**
 ```yaml
