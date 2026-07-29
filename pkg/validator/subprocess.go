@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -34,8 +35,8 @@ func NewSubprocessValidator(pythonExe, scriptPath string) (*SubprocessValidator,
 		return nil, fmt.Errorf("failed to open stdout pipe: %w", err)
 	}
 
-	// We let standard error pass through to parent stderr for debugging visibility
-	cmd.Stderr = nil
+	// Keep model loading and batch errors visible; stdout remains protocol-only JSON.
+	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start python subprocess: %w", err)
@@ -73,7 +74,7 @@ func (v *SubprocessValidator) restart() error {
 		return fmt.Errorf("failed to reopen stdout pipe on restart: %w", err)
 	}
 
-	cmd.Stderr = nil
+	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to restart python subprocess: %w", err)
@@ -155,13 +156,16 @@ func (v *SubprocessValidator) Validate(candidates []types.Candidate) ([]types.Fi
 	for _, res := range resp.Results {
 		if res.Valid {
 			findings = append(findings, types.Finding{
-				Image:    res.Candidate.Image,
-				Tag:      res.Candidate.Tag,
-				File:     res.Candidate.File,
-				Line:     res.Candidate.Line,
-				Variable: res.Candidate.Variable,
-				Value:    res.Candidate.Value,
-				Context:  res.Candidate.Context,
+				Image:            res.Candidate.Image,
+				Tag:              res.Candidate.Tag,
+				File:             res.Candidate.File,
+				Line:             res.Candidate.Line,
+				Variable:         res.Candidate.Variable,
+				Value:            res.Candidate.Value,
+				Context:          res.Candidate.Context,
+				RuleName:         res.Candidate.RuleName,
+				ValidationSource: "starpii",
+				Confidence:       "model-validated",
 			})
 		}
 	}

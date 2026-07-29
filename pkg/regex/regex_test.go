@@ -2,6 +2,8 @@ package regex
 
 import (
 	"testing"
+
+	"github.com/DarkSar7/DockerHunter/pkg/config"
 )
 
 func TestExtractCandidates(t *testing.T) {
@@ -69,5 +71,25 @@ func TestExtractCandidates(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMatchRulePrefersSensitiveSignature(t *testing.T) {
+	rules := &config.RegexRules{Signatures: []config.Signature{
+		{Pattern: config.PatternDetail{Name: "Generic Token", Sensitive: false, Value: `(?i)api[_-]?key`}},
+		{Pattern: config.PatternDetail{Name: "Google API Key", Sensitive: true, Value: `AIza[0-9A-Za-z_-]{35}`}},
+	}}
+
+	sig, matched := MatchRule(
+		"GOOGLE_MAP_KEY",
+		"AIzaSyBHL-BOb3Vy_bQE9xJ4EWD2ga0zv0x_VOk",
+		`"GOOGLE_MAP_KEY": "AIzaSyBHL-BOb3Vy_bQE9xJ4EWD2ga0zv0x_VOk"`,
+		CompileRules(rules),
+	)
+	if !matched {
+		t.Fatal("expected second-stage signature match")
+	}
+	if sig.Name != "Google API Key" || !sig.Sensitive {
+		t.Fatalf("got signature %#v; want sensitive Google API Key", sig)
 	}
 }

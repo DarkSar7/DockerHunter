@@ -82,12 +82,13 @@ type Options struct {
 }
 
 type ScanResults struct {
-	Repository      string
-	ImagesScanned   int
-	ImagesFailed    int
-	CandidatesFound int
-	Findings        []types.Finding
-	Errors          []string
+	Repository      string          `json:"repository"`
+	ImagesScanned   int             `json:"images_scanned"`
+	ImagesFailed    int             `json:"images_failed"`
+	CandidatesFound int             `json:"generic_candidates_found"`
+	Pipeline        PipelineStats   `json:"pipeline"`
+	Findings        []types.Finding `json:"findings"`
+	Errors          []string        `json:"errors"`
 }
 
 func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *config.RegexRules, val validator.Validator, authManager *auth.AuthManager) (*ScanResults, error) {
@@ -116,7 +117,7 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 		}
 
 		fmt.Println("Fetching tags from registry...")
-		
+
 		var tags []string
 		for attempt := 0; attempt <= maxRetries; attempt++ {
 			a, username, authErr := authManager.GetAuthenticator(registry)
@@ -135,7 +136,7 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 			}
 			break
 		}
-		
+
 		tagsToScan = tags
 		if len(tagsToScan) == 0 {
 			return nil, fmt.Errorf("no tags found for repository %q", opts.ImageName)
@@ -183,7 +184,7 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 			if !fetched {
 				tagMeta = fetchTagsCreationTimes(repoName, tagsToScan, authManager)
 			}
-			
+
 			// Sort tags by creation time descending (newest first)
 			sort.Slice(tagMeta, func(i, j int) bool {
 				return tagMeta[i].created.After(tagMeta[j].created)
@@ -314,7 +315,7 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 
 			fmt.Printf("%s Walking filesystem...\n", imageProgressPrefix)
 			squashedTree := img.SquashedTree()
-			
+
 			_ = squashedTree.Walk(func(path file.Path, node filenode.FileNode) error {
 				if node.FileType != file.TypeRegular {
 					return nil
@@ -378,13 +379,14 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 				return nil
 			}, nil)
 		}()
-		
+
 		results.ImagesScanned++
 	}
 
 	// Close the pipeline and collect findings
-	findings, preAICandidates, pipeErrors := pipeline.Close()
+	findings, preAICandidates, pipeErrors, pipelineStats := pipeline.Close()
 	results.Findings = findings
+	results.Pipeline = pipelineStats
 	results.Errors = append(results.Errors, pipeErrors...)
 
 	if opts.Pre {
@@ -476,7 +478,7 @@ func filterSemver(tags []string, constraintStr string) []string {
 
 func fetchTagsCreationTimes(repoName string, tags []string, authManager *auth.AuthManager) []tagWithTime {
 	fmt.Printf("Fetching creation timestamps for %d tags...\n", len(tags))
-	
+
 	tagChan := make(chan string, len(tags))
 	for _, tag := range tags {
 		tagChan <- tag
@@ -516,7 +518,7 @@ func fetchTagsCreationTimes(repoName string, tags []string, authManager *auth.Au
 					cancel()
 					continue
 				}
-				
+
 				var desc *remote.Descriptor
 				for attempt := 0; attempt <= maxRetries; attempt++ {
 					a, username, authErr := authManager.GetAuthenticator(registry)
@@ -598,7 +600,7 @@ type hubResponse struct {
 
 func fetchDockerHubTags(namespace, name string, authManager *auth.AuthManager) ([]tagWithTime, error) {
 	url := fmt.Sprintf("https://hub.docker.com/v2/repositories/%s/%s/tags?page_size=100", namespace, name)
-	
+
 	var results []tagWithTime
 	client := &http.Client{Timeout: 10 * time.Second}
 
@@ -607,7 +609,7 @@ func fetchDockerHubTags(namespace, name string, authManager *auth.AuthManager) (
 		if err != nil {
 			return nil, err
 		}
-		
+
 		a, username, authErr := authManager.GetAuthenticator("index.docker.io")
 		if authErr == nil && username != "" {
 			if basic, ok := a.(*authn.Basic); ok {

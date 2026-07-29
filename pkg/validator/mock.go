@@ -24,13 +24,16 @@ func (m *MockValidator) Validate(candidates []types.Candidate) ([]types.Finding,
 	for _, c := range candidates {
 		if m.Classifier(c) {
 			findings = append(findings, types.Finding{
-				Image:    c.Image,
-				Tag:      c.Tag,
-				File:     c.File,
-				Line:     c.Line,
-				Variable: c.Variable,
-				Value:    c.Value,
-				Context:  c.Context,
+				Image:            c.Image,
+				Tag:              c.Tag,
+				File:             c.File,
+				Line:             c.Line,
+				Variable:         c.Variable,
+				Value:            c.Value,
+				Context:          c.Context,
+				RuleName:         c.RuleName,
+				ValidationSource: "mock",
+				Confidence:       "model-validated",
 			})
 		}
 	}

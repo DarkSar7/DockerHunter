@@ -21,8 +21,9 @@ type CompiledRules struct {
 }
 
 type CompiledSignature struct {
-	Name string
-	Re   *regexp.Regexp
+	Name      string
+	Sensitive bool
+	Re        *regexp.Regexp
 }
 
 func CompileRules(rules *config.RegexRules) *CompiledRules {
@@ -38,29 +39,48 @@ func CompileRules(rules *config.RegexRules) *CompiledRules {
 		re, err := regexp.Compile(patternStr)
 		if err == nil {
 			cr.Signatures = append(cr.Signatures, CompiledSignature{
-				Name: sig.Pattern.Name,
-				Re:   re,
+				Name:      sig.Pattern.Name,
+				Sensitive: sig.Pattern.Sensitive,
+				Re:        re,
 			})
 		}
 	}
 	return cr
 }
 
-// MatchRules checks if a candidate matches any signature validation rule.
-func MatchRules(variable, value, context string, cr *CompiledRules) bool {
+// MatchRule is the second regex stage. It returns the first matching signature,
+// including its confidence metadata, after a candidate passed GeneralPattern.
+func MatchRule(variable, value, context string, cr *CompiledRules) (CompiledSignature, bool) {
 	if cr == nil || len(cr.Signatures) == 0 {
 		warnOnce.Do(func() {
 			fmt.Println("⚠️  Warning: No signature rules loaded. Scanner is running in fail-open mode (sending all candidates to AI validator).")
 		})
-		return true // If no rules loaded, pass it through
+		return CompiledSignature{Name: "No signature rules loaded"}, true
 	}
 
+	var firstMatch CompiledSignature
 	for _, sig := range cr.Signatures {
 		if sig.Re.MatchString(value) || sig.Re.MatchString(variable) || sig.Re.MatchString(context) {
-			return true
+			// A provider-specific/high-confidence signature must win over a
+			// preceding generic signature in the rules file.
+			if sig.Sensitive {
+				return sig, true
+			}
+			if firstMatch.Re == nil {
+				firstMatch = sig
+			}
 		}
 	}
-	return false
+	if firstMatch.Re != nil {
+		return firstMatch, true
+	}
+	return CompiledSignature{}, false
+}
+
+// MatchRules checks if a candidate matches any signature validation rule.
+func MatchRules(variable, value, context string, cr *CompiledRules) bool {
+	_, matched := MatchRule(variable, value, context, cr)
+	return matched
 }
 
 // ExtractCandidates scans a context string (a line of code) and extracts secret candidates.

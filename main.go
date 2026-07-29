@@ -145,7 +145,7 @@ func main() {
 
 func displayResults(w io.Writer, res *scanner.ScanResults, fmtOpt string) {
 	if fmtOpt == "json" {
-		jsonBytes, err := json.MarshalIndent(res.Findings, "", "  ")
+		jsonBytes, err := json.MarshalIndent(res, "", "  ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error formatting JSON: %v\n", err)
 			return
@@ -160,7 +160,10 @@ func displayResults(w io.Writer, res *scanner.ScanResults, fmtOpt string) {
 	fmt.Fprintf(w, "Repository:         %s\n", res.Repository)
 	fmt.Fprintf(w, "Images Scanned:     %d\n", res.ImagesScanned)
 	fmt.Fprintf(w, "Images Failed:      %d\n", res.ImagesFailed)
-	fmt.Fprintf(w, "Candidates Found:   %d\n", res.CandidatesFound)
+	fmt.Fprintf(w, "Generic Candidates: %d\n", res.CandidatesFound)
+	fmt.Fprintf(w, "Signature Matches:  %d\n", res.Pipeline.SignatureMatches)
+	fmt.Fprintf(w, "Sent to StarPII:    %d\n", res.Pipeline.SentToAI)
+	fmt.Fprintf(w, "AI Rejected:        %d\n", res.Pipeline.AIRejected)
 	fmt.Fprintf(w, "Validated Findings: %d\n", len(res.Findings))
 	fmt.Fprintln(w, "=======================================================")
 

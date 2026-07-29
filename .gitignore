@@ -22,3 +22,8 @@ models/
 .system_generated/
 *.log
 pkg_image.txt
+
+# Local built binaries and scan outputs
+DockerHunter
+*.json
+*.txt

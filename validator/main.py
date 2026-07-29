@@ -48,6 +48,33 @@ def truncate_context(context, value, max_len=100):
 	end = min(len(context), start + max_len)
 	return context[start:end]
 
+def normalize_pipeline_results(raw_results, expected_count):
+	"""Return one list of entity dictionaries per input text.
+
+	Transformers returns a list of dictionaries for one string, but a list of
+	lists for a list of strings. Normalizing this boundary prevents single-item
+	batches from being treated as a single dictionary and rejected unconditionally.
+	"""
+	if expected_count == 1:
+		if raw_results is None:
+			return [[]]
+		if isinstance(raw_results, dict):
+			return [[raw_results]]
+		if isinstance(raw_results, list):
+			if not raw_results:
+				return [[]]
+			if all(isinstance(item, dict) for item in raw_results):
+				return [raw_results]
+			if len(raw_results) == 1 and isinstance(raw_results[0], list):
+				return raw_results
+		raise ValueError("unexpected StarPII response shape for one input")
+
+	if not isinstance(raw_results, list) or len(raw_results) != expected_count:
+		raise ValueError(f"expected {expected_count} StarPII results, got incompatible response")
+	if not all(isinstance(item, list) for item in raw_results):
+		raise ValueError("unexpected StarPII response shape for batched input")
+	return raw_results
+
 def main():
 	ensure_default_config()
 	print("🔄 Loading StarPII model pipeline...", file=sys.stderr)
@@ -89,18 +116,14 @@ def main():
 
 			# Perform pipeline inference with per-item fallback isolation
 			try:
-				pipeline_results = model_pipeline(texts)
-				if len(texts) == 1 and not isinstance(pipeline_results, list):
-					pipeline_results = [pipeline_results]
+				pipeline_results = normalize_pipeline_results(model_pipeline(texts), len(texts))
 			except Exception as batch_err:
 				print(f"Batch inference failed: {batch_err}. Falling back to single-item validation...", file=sys.stderr)
 				pipeline_results = []
 				for t in texts:
 					try:
-						single_res = model_pipeline(t)
-						if not isinstance(single_res, list):
-							single_res = [single_res]
-						pipeline_results.append(single_res[0] if single_res else [])
+						single_res = normalize_pipeline_results(model_pipeline(t), 1)
+						pipeline_results.append(single_res[0])
 					except Exception as single_err:
 						print(f"Single-item inference failed for text {t!r}: {single_err}", file=sys.stderr)
 						pipeline_results.append([])
