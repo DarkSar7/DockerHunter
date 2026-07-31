@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/google/go-containerregistry/pkg/name"
 
 	"github.com/DarkSar7/DockerHunter/pkg/auth"
 	"github.com/DarkSar7/DockerHunter/pkg/config"
@@ -111,19 +113,28 @@ func main() {
 			fmt.Println("AI Server Status: Running")
 			defer val.Close()
 
+			// Resolve repoName for path structuring
+			repoPath := imageName
+			if rRepo, err := name.NewRepository(imageName); err == nil {
+				repoPath = rRepo.Name()
+			}
+			repoPath = strings.ReplaceAll(repoPath, ":", "_") // clean tags
+
 			var finalResultsPath string
 			var baseOutputDir string
 
 			if outputPath != "" {
 				if filepath.Ext(outputPath) == ".json" {
-					finalResultsPath = outputPath
-					baseOutputDir = filepath.Dir(outputPath)
+					baseDir := filepath.Dir(outputPath)
+					fileName := filepath.Base(outputPath)
+					baseOutputDir = filepath.Join(baseDir, repoPath)
+					finalResultsPath = filepath.Join(baseOutputDir, fileName)
 				} else {
-					baseOutputDir = outputPath
+					baseOutputDir = filepath.Join(outputPath, repoPath)
 					finalResultsPath = filepath.Join(baseOutputDir, "results.json")
 				}
 			} else if contextOpt != "none" {
-				baseOutputDir = "output"
+				baseOutputDir = filepath.Join("output", repoPath)
 				finalResultsPath = filepath.Join(baseOutputDir, "results.json")
 			}
 

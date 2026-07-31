@@ -509,19 +509,20 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 
 	// Base output directory resolution
 	var baseOutputDir string
+	repoPath := strings.ReplaceAll(results.Repository, ":", "_") // keep slashes, clean tags
+
 	if opts.OutputPath != "" {
 		if filepath.Ext(opts.OutputPath) == ".json" {
-			baseOutputDir = filepath.Dir(opts.OutputPath)
+			baseOutputDir = filepath.Join(filepath.Dir(opts.OutputPath), repoPath)
 		} else {
-			baseOutputDir = opts.OutputPath
+			baseOutputDir = filepath.Join(opts.OutputPath, repoPath)
 		}
 	} else if opts.Context != "none" {
-		baseOutputDir = "output"
+		baseOutputDir = filepath.Join("output", repoPath)
 	}
 
-	if opts.Context != "none" {
-		normalizedRepo := strings.ReplaceAll(strings.ReplaceAll(results.Repository, "/", "_"), ":", "_")
-		contextDir := filepath.Join(baseOutputDir, "context", normalizedRepo)
+	if opts.Context != "none" && len(results.Findings) > 0 {
+		contextDir := filepath.Join(baseOutputDir, "context")
 
 		if err := os.MkdirAll(contextDir, 0755); err != nil {
 			if errLog != nil {

@@ -26,11 +26,11 @@ It retrieves squashed container image filesystems directly from remote registrie
   - Intercepts registry responses proactively using a custom `http.RoundTripper` wrapper to read rate-limit headers (`RateLimit-Remaining: 0`). Rotates accounts *before* hitting HTTP 429 failures.
   - Thread-safe (`sync.RWMutex`) statistics tracking and cooldown rotation.
 - **Output & Context Customization**:
-  - `--output`, `-o`: Saves final scan results directly to a file (text report or JSON). If a directory path is specified, it saves as `results.json` inside it.
+  - `--output`, `-o`: Saves final scan results and extracted context organized under the scanned OCI repository hierarchy directory path (e.g. `<base_output_dir>/<registry>/<user>/<repo>/`). If a directory path is specified, it saves the JSON file as `results.json` inside it.
   - `--pre`: Saves candidates matching signature rules to `pre.json` *before* they are sent to the AI validator.
-  - `--context <mode>`: Context export mode to extract verified source code from images. Modes are:
+  - `--context <mode>`: Context export mode to extract verified source code from images. The context directory is only created if the AI validates at least one secret finding. Modes are:
     - `none` (default): No context exported.
-    - `files`: Exports only the source files containing validated secrets into `<base_output_dir>/context/<repo>/`, preserving the exact hierarchy.
+    - `files`: Exports only the source files containing validated secrets into `<base_output_dir>/<repo_path>/context/`, preserving the exact hierarchy.
     - `full`: Exports validated source files plus helpful project metadata files (e.g. `composer.json`, `package.json`, `Dockerfile`, `go.mod`, etc.) for technology stack reference.
     - Exported files are written with a companion `<filename>.findings.json` mapping validation details (line, variable, rule name, validator, confidence), and a global `findings.json` in the context root.
 
@@ -204,7 +204,7 @@ DockerHunter scan lyft/flyteadmin-stages:2 --pre
 *(Creates `pre.json` containing candidates that matched your regex signatures before StarPII filtered out placeholders).*
 
 ### 4. Extract Files Containing Validated Secrets (Context Mode)
-Extract only source files containing validated secrets under `output/context/`:
+Extract only source files containing validated secrets under `output/<registry_repo_path>/context/`:
 ```bash
 DockerHunter scan rolandihms/kucoin -o output --context files
 ```
@@ -213,6 +213,7 @@ Extract source files plus surrounding project configuration metadata (like `comp
 ```bash
 DockerHunter scan rolandihms/kucoin -o output --context full
 ```
+*(Note: If a scanned image contains zero validated secrets, the `context/` directory will not be created at all).*
 
 ### 5. Filter Registry Scans (Latest Tags & Limits)
 Query the 5 most recently created tags of alpine:
