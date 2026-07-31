@@ -71,9 +71,12 @@ class TestValidatorStdinStdout(unittest.TestCase):
 
 		# Parse output from mock_stdout
 		output_lines = mock_stdout.getvalue().strip().split("\n")
-		self.assertEqual(len(output_lines), 1)
+		self.assertEqual(len(output_lines), 2)
 
-		resp = json.loads(output_lines[0])
+		ready_resp = json.loads(output_lines[0])
+		self.assertEqual(ready_resp.get("status"), "ready")
+
+		resp = json.loads(output_lines[1])
 		self.assertEqual(resp.get("batch_id"), "test-batch-123")
 		
 		results = resp.get("results", [])
@@ -127,9 +130,12 @@ class TestValidatorStdinStdout(unittest.TestCase):
 			main()
 
 		output_lines = mock_stdout.getvalue().strip().split("\n")
-		self.assertEqual(len(output_lines), 1)
+		self.assertEqual(len(output_lines), 2)
 
-		resp = json.loads(output_lines[0])
+		ready_resp = json.loads(output_lines[0])
+		self.assertEqual(ready_resp.get("status"), "ready")
+
+		resp = json.loads(output_lines[1])
 		results = resp.get("results", [])
 		self.assertEqual(len(results), 2)
 
@@ -180,9 +186,12 @@ class TestValidatorStdinStdout(unittest.TestCase):
 			main()
 
 		output_lines = mock_stdout.getvalue().strip().split("\n")
-		self.assertEqual(len(output_lines), 1)
+		self.assertEqual(len(output_lines), 2)
 
-		resp = json.loads(output_lines[0])
+		ready_resp = json.loads(output_lines[0])
+		self.assertEqual(ready_resp.get("status"), "ready")
+
+		resp = json.loads(output_lines[1])
 		results = resp.get("results", [])
 		self.assertEqual(len(results), 2)
 

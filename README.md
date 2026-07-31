@@ -25,9 +25,14 @@ It retrieves squashed container image filesystems directly from remote registrie
   - Limits retry loops on HTTP 429 (Too Many Requests) to the count of configured accounts to prevent infinite loops.
   - Intercepts registry responses proactively using a custom `http.RoundTripper` wrapper to read rate-limit headers (`RateLimit-Remaining: 0`). Rotates accounts *before* hitting HTTP 429 failures.
   - Thread-safe (`sync.RWMutex`) statistics tracking and cooldown rotation.
-- **Output Customization**:
-  - `--output`, `-o`: Saves final scan results directly to a file (text report or JSON).
+- **Output & Context Customization**:
+  - `--output`, `-o`: Saves final scan results directly to a file (text report or JSON). If a directory path is specified, it saves as `results.json` inside it.
   - `--pre`: Saves candidates matching signature rules to `pre.json` *before* they are sent to the AI validator.
+  - `--context <mode>`: Context export mode to extract verified source code from images. Modes are:
+    - `none` (default): No context exported.
+    - `files`: Exports only the source files containing validated secrets into `<base_output_dir>/context/<repo>/`, preserving the exact hierarchy.
+    - `full`: Exports validated source files plus helpful project metadata files (e.g. `composer.json`, `package.json`, `Dockerfile`, `go.mod`, etc.) for technology stack reference.
+    - Exported files are written with a companion `<filename>.findings.json` mapping validation details (line, variable, rule name, validator, confidence), and a global `findings.json` in the context root.
 
 ---
 
@@ -70,10 +75,34 @@ User (CLI Command)
 ### 1. Installation
 Install the DockerHunter binary globally via Go:
 ```bash
-# Install latest executable to $GOPATH/bin/DockerHunter
-go install github.com/DarkSar7/DockerHunter@latest
+# Install the current main branch executable to $GOPATH/bin/DockerHunter
+go install github.com/DarkSar7/DockerHunter@main
+hash -r
+DockerHunter --version
 ```
 *(Ensure `~/go/bin` is in your terminal's `$PATH` or copy it to `/usr/local/bin/DockerHunter` for global access).*
+
+### Updating an Existing Installation
+
+`git pull` only updates a source checkout; it does not replace the executable
+already found in `$PATH`. Reinstall the binary, then confirm the command path:
+
+```bash
+go install github.com/DarkSar7/DockerHunter@main
+hash -r
+command -v DockerHunter
+DockerHunter --version
+```
+
+For a system-wide installation as root:
+
+```bash
+cd /path/to/DockerHunter
+git pull --ff-only
+go build -o /usr/local/bin/DockerHunter .
+hash -r
+DockerHunter --version
+```
 
 ---
 
@@ -146,8 +175,9 @@ DockerHunter scan [image_reference] [flags]
 
 - `--all-tags`: Scans all tags in the repository.
 - `--format`: Output format, accepts `text` or `json` (default `text`).
-- `--output`, `-o`: File path to save final scan results.
+- `--output`, `-o`: File or directory path to save final results.
 - `--pre`: Saves matching candidate credentials to `pre.json` before they are sent to the AI validator.
+- `--context <mode>`: Context export mode (`none`, `files`, or `full`).
 - `--semver "<constraint>"`: Scan only tags matching semantic version constraints (e.g. `^3.18`).
 - `--latest <N>`: Scan only the `N` most recently updated tags.
 - `--since <YYYY-MM or YYYY-MM-DD>`: Scan only tags created since the specified date.
@@ -173,7 +203,18 @@ DockerHunter scan lyft/flyteadmin-stages:2 --pre
 ```
 *(Creates `pre.json` containing candidates that matched your regex signatures before StarPII filtered out placeholders).*
 
-### 4. Filter Registry Scans (Latest Tags & Limits)
+### 4. Extract Files Containing Validated Secrets (Context Mode)
+Extract only source files containing validated secrets under `output/context/`:
+```bash
+DockerHunter scan rolandihms/kucoin -o output --context files
+```
+
+Extract source files plus surrounding project configuration metadata (like `composer.json` or `Dockerfile`):
+```bash
+DockerHunter scan rolandihms/kucoin -o output --context full
+```
+
+### 5. Filter Registry Scans (Latest Tags & Limits)
 Query the 5 most recently created tags of alpine:
 ```bash
 DockerHunter scan alpine --all-tags --latest 5

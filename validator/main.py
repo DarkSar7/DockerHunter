@@ -83,9 +83,13 @@ def main():
 		print("✅ StarPII model pipeline loaded successfully", file=sys.stderr)
 	else:
 		print("❌ Failed to load StarPII model pipeline", file=sys.stderr)
+		print(json.dumps({"status": "failed", "error": "Failed to load StarPII model pipeline"}))
+		sys.stdout.flush()
 		sys.exit(1)
 
 	print("Validator ready to receive batches on stdin.", file=sys.stderr)
+	print(json.dumps({"status": "ready"}))
+	sys.stdout.flush()
 
 	while True:
 		line = sys.stdin.readline()

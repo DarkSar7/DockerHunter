@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	"github.com/spf13/cobra"
 
@@ -15,8 +16,17 @@ import (
 	"github.com/DarkSar7/DockerHunter/pkg/config"
 	"github.com/DarkSar7/DockerHunter/pkg/scanner"
 	"github.com/DarkSar7/DockerHunter/pkg/setup"
+	"github.com/DarkSar7/DockerHunter/pkg/types"
 	"github.com/DarkSar7/DockerHunter/pkg/validator"
 )
+
+func buildVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return "dev"
+	}
+	return info.Main.Version
+}
 
 //go:embed validator/* config/*
 var embeddedFS embed.FS
@@ -30,13 +40,15 @@ var (
 	sinceDate       string
 	latestCount     int
 	semverRange     string
+	contextOpt      string
 )
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "dockerhunter",
-		Short: "DockerHunter is an OCI registry secret scanner with AI validation",
-		Long:  `DockerHunter retrieves squashed container image filesystems directly from registries, scans them, and uses StarPII to validate credentials.`,
+		Use:     "dockerhunter",
+		Short:   "DockerHunter is an OCI registry secret scanner with AI validation",
+		Long:    `DockerHunter retrieves squashed container image filesystems directly from registries, scans them, and uses StarPII to validate credentials.`,
+		Version: buildVersion(),
 	}
 
 	setupCmd := &cobra.Command{
@@ -82,45 +94,80 @@ func main() {
 			pyExe := cfg.Validator.ExecutablePath
 			scriptPath := filepath.Join(baseDir, "validator", "main.py")
 
-			// Start Python validator subprocess (Start ONCE, live during scan, close at exit)
-			fmt.Println("Starting AI Validator subprocess...")
-			val, err := validator.NewSubprocessValidator(pyExe, scriptPath)
+			// Open error log file
+			errLogFile, err := os.OpenFile("scanner_errors.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 			if err != nil {
+				return fmt.Errorf("failed to create or open scanner_errors.log: %w", err)
+			}
+			defer errLogFile.Close()
+
+			// Start Python validator subprocess (Start ONCE, live during scan, close at exit)
+			fmt.Println("AI Server Status: Checking...")
+			val, err := validator.NewSubprocessValidator(pyExe, scriptPath, errLogFile)
+			if err != nil {
+				fmt.Println("AI Server Status: Not Running")
 				return fmt.Errorf("failed to start validator subprocess: %w", err)
 			}
+			fmt.Println("AI Server Status: Running")
 			defer val.Close()
 
+			var finalResultsPath string
+			var baseOutputDir string
+
+			if outputPath != "" {
+				if filepath.Ext(outputPath) == ".json" {
+					finalResultsPath = outputPath
+					baseOutputDir = filepath.Dir(outputPath)
+				} else {
+					baseOutputDir = outputPath
+					finalResultsPath = filepath.Join(baseOutputDir, "results.json")
+				}
+			} else if contextOpt != "none" {
+				baseOutputDir = "output"
+				finalResultsPath = filepath.Join(baseOutputDir, "results.json")
+			}
+
 			opts := scanner.Options{
-				ImageName: imageName,
-				AllTags:   allTags,
-				Format:    format,
-				Pre:       preAICandidates,
-				MaxTags:   maxTags,
-				Since:     sinceDate,
-				Latest:    latestCount,
-				Semver:    semverRange,
+				ImageName:  imageName,
+				AllTags:    allTags,
+				Format:     format,
+				Pre:        preAICandidates,
+				MaxTags:    maxTags,
+				Since:      sinceDate,
+				Latest:     latestCount,
+				Semver:     semverRange,
+				Context:    contextOpt,
+				OutputPath: outputPath,
 			}
 			if opts.Format == "" {
 				opts.Format = cfg.Scanner.OutputFormat
 			}
 
 			authMgr := auth.NewAuthManager(cfg)
-			results, err := scanner.PerformScan(context.Background(), opts, cfg, rules, val, authMgr)
+			results, err := scanner.PerformScan(context.Background(), opts, cfg, rules, val, authMgr, errLogFile)
 			if err != nil {
 				return err
 			}
 
-			if outputPath != "" {
-				file, err := os.Create(outputPath)
+			if finalResultsPath != "" {
+				if err := os.MkdirAll(filepath.Dir(finalResultsPath), 0755); err != nil {
+					return fmt.Errorf("failed to create output directory %s: %w", filepath.Dir(finalResultsPath), err)
+				}
+				file, err := os.OpenFile(finalResultsPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 				if err != nil {
-					return fmt.Errorf("failed to create output file %s: %w", outputPath, err)
+					return fmt.Errorf("failed to create output file %s: %w", finalResultsPath, err)
 				}
 				defer file.Close()
 				displayResults(file, results, opts.Format)
-				fmt.Printf("✓ Scan results saved to %s\n", outputPath)
+				fmt.Printf("✓ Scan results saved to %s\n", finalResultsPath)
 			} else {
 				displayResults(os.Stdout, results, opts.Format)
 			}
+
+			if stat, err := os.Stat("scanner_errors.log"); err == nil && stat.Size() > 0 {
+				fmt.Println("\n⚠️  Warnings or errors were encountered during the scan. Please check scanner_errors.log for details.")
+			}
+
 			return nil
 		},
 	}
@@ -133,6 +180,7 @@ func main() {
 	scanCmd.Flags().StringVar(&sinceDate, "since", "", "Scan tags created since date (YYYY-MM or YYYY-MM-DD)")
 	scanCmd.Flags().IntVar(&latestCount, "latest", 0, "Scan only the N most recently updated tags")
 	scanCmd.Flags().StringVar(&semverRange, "semver", "", "Scan only tags matching semantic versioning constraint")
+	scanCmd.Flags().StringVar(&contextOpt, "context", "none", "Context export mode (none, files, full)")
 
 	rootCmd.AddCommand(setupCmd)
 	rootCmd.AddCommand(scanCmd)
@@ -144,6 +192,16 @@ func main() {
 }
 
 func displayResults(w io.Writer, res *scanner.ScanResults, fmtOpt string) {
+	if res == nil {
+		return
+	}
+	if res.Findings == nil {
+		res.Findings = []types.Finding{}
+	}
+	if res.Errors == nil {
+		res.Errors = []string{}
+	}
+
 	if fmtOpt == "json" {
 		jsonBytes, err := json.MarshalIndent(res, "", "  ")
 		if err != nil {

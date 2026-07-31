@@ -11,7 +11,7 @@ import (
 )
 
 // GeneralPattern is the generic regex chosen to match secret assignments, using named groups for robustness.
-var GeneralPattern = regexp.MustCompile(`(?i)(\"|')?([a-z0-9_-]+)?((key|pass|user|username|pwd|credentials|auth|password|pwd|Ldap|Jenkins|ftp|dotfiles|JDBC|config|connectionstring|ssh|creds|secret|cred|access|Bearer|token|passwd|api|admin|private|bash|aws|s3|cookie)){1,}([a-z0-9 _[:space:]-]+)?(\"|')?(?P<op>=>|=|:|,|\\+)(( )?(\"|'|return|{))?([a-z0-9 _[:space:]-=\.])+(?P<close>( )?(\"|'|return|{))`)
+var GeneralPattern = regexp.MustCompile(`(?i)(\"|')?([a-z0-9_-]+)?((key|pass|user|username|pwd|credentials|auth|password|pwd|Ldap|Jenkins|ftp|dotfiles|JDBC|config|connectionstring|ssh|creds|secret|cred|access|Bearer|token|passwd|api|admin|private|bash|aws|s3|cookie)){1,}([a-z0-9 _[:space:]-]+)?(\"|')?(?P<op>=>|:=|\+=|=|-:|:)(( )?(\"|'|return|{))?([a-z0-9 _[:space:]-=\.])+(?P<close>( )?(\"|'|return|{))`)
 
 var warnOnce sync.Once
 
@@ -50,7 +50,7 @@ func CompileRules(rules *config.RegexRules) *CompiledRules {
 
 // MatchRule is the second regex stage. It returns the first matching signature,
 // including its confidence metadata, after a candidate passed GeneralPattern.
-func MatchRule(variable, value, context string, cr *CompiledRules) (CompiledSignature, bool) {
+func MatchRule(variable, value, rawMatch string, cr *CompiledRules) (CompiledSignature, bool) {
 	if cr == nil || len(cr.Signatures) == 0 {
 		warnOnce.Do(func() {
 			fmt.Println("⚠️  Warning: No signature rules loaded. Scanner is running in fail-open mode (sending all candidates to AI validator).")
@@ -60,7 +60,7 @@ func MatchRule(variable, value, context string, cr *CompiledRules) (CompiledSign
 
 	var firstMatch CompiledSignature
 	for _, sig := range cr.Signatures {
-		if sig.Re.MatchString(value) || sig.Re.MatchString(variable) || sig.Re.MatchString(context) {
+		if sig.Re.MatchString(value) || sig.Re.MatchString(variable) || sig.Re.MatchString(rawMatch) {
 			// A provider-specific/high-confidence signature must win over a
 			// preceding generic signature in the rules file.
 			if sig.Sensitive {
@@ -78,8 +78,8 @@ func MatchRule(variable, value, context string, cr *CompiledRules) (CompiledSign
 }
 
 // MatchRules checks if a candidate matches any signature validation rule.
-func MatchRules(variable, value, context string, cr *CompiledRules) bool {
-	_, matched := MatchRule(variable, value, context, cr)
+func MatchRules(variable, value, rawMatch string, cr *CompiledRules) bool {
+	_, matched := MatchRule(variable, value, rawMatch, cr)
 	return matched
 }
 
@@ -127,6 +127,9 @@ func ExtractCandidates(image, tag, file string, lineNum int, context string) []t
 			continue
 		}
 
+		endIdx := locs[1]
+		rawMatch := context[start:endIdx]
+
 		candidates = append(candidates, types.Candidate{
 			Image:    image,
 			Tag:      tag,
@@ -135,6 +138,7 @@ func ExtractCandidates(image, tag, file string, lineNum int, context string) []t
 			Variable: variable,
 			Value:    value,
 			Context:  strings.TrimSpace(context),
+			RawMatch: rawMatch,
 		})
 	}
 	return candidates

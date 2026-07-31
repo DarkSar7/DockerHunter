@@ -8,6 +8,7 @@ type Candidate struct {
 	Variable string `json:"variable"`
 	Value    string `json:"value"`
 	Context  string `json:"context"`
+	RawMatch string `json:"raw_match,omitempty"`
 	// RuleName and RuleSensitive are set only after the signature-regex stage.
 	RuleName      string `json:"rule_name,omitempty"`
 	RuleSensitive bool   `json:"rule_sensitive,omitempty"`

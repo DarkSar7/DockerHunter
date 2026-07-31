@@ -20,7 +20,7 @@ func NewMockValidator() *MockValidator {
 }
 
 func (m *MockValidator) Validate(candidates []types.Candidate) ([]types.Finding, error) {
-	var findings []types.Finding
+	findings := []types.Finding{}
 	for _, c := range candidates {
 		if m.Classifier(c) {
 			findings = append(findings, types.Finding{

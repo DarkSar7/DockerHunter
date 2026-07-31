@@ -117,13 +117,27 @@ func (p *Pipeline) Close() ([]types.Finding, []types.Candidate, []string, Pipeli
 	defer p.mu.Unlock()
 	findings := append([]types.Finding{}, p.findings...)
 	pre := append([]types.Candidate{}, p.preAICandidates...)
-	return findings, pre, append([]string{}, p.errors...), p.stats
+	errs := append([]string{}, p.errors...)
+	if findings == nil {
+		findings = []types.Finding{}
+	}
+	if pre == nil {
+		pre = []types.Candidate{}
+	}
+	if errs == nil {
+		errs = []string{}
+	}
+	return findings, pre, errs, p.stats
 }
 
 func (p *Pipeline) workerRegexValidation() {
 	defer p.wgWorkers.Done()
 	for c := range p.candidateChan {
-		sig, matched := regex.MatchRule(c.Variable, c.Value, c.Context, p.rules)
+		rawMatch := c.RawMatch
+		if rawMatch == "" {
+			rawMatch = c.Context
+		}
+		sig, matched := regex.MatchRule(c.Variable, c.Value, rawMatch, p.rules)
 		if !matched {
 			continue
 		}

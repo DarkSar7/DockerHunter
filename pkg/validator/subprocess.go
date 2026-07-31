@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -20,9 +19,10 @@ type SubprocessValidator struct {
 	pythonExe  string
 	scriptPath string
 	mu         sync.Mutex
+	stderrW    io.Writer
 }
 
-func NewSubprocessValidator(pythonExe, scriptPath string) (*SubprocessValidator, error) {
+func NewSubprocessValidator(pythonExe, scriptPath string, stderrW io.Writer) (*SubprocessValidator, error) {
 	cmd := exec.Command(pythonExe, scriptPath)
 
 	stdinPipe, err := cmd.StdinPipe()
@@ -35,8 +35,11 @@ func NewSubprocessValidator(pythonExe, scriptPath string) (*SubprocessValidator,
 		return nil, fmt.Errorf("failed to open stdout pipe: %w", err)
 	}
 
-	// Keep model loading and batch errors visible; stdout remains protocol-only JSON.
-	cmd.Stderr = os.Stderr
+	if stderrW != nil {
+		cmd.Stderr = stderrW
+	} else {
+		cmd.Stderr = io.Discard
+	}
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start python subprocess: %w", err)
@@ -45,12 +48,37 @@ func NewSubprocessValidator(pythonExe, scriptPath string) (*SubprocessValidator,
 	scanner := bufio.NewScanner(stdoutPipe)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 
+	// Wait for the ready message from python subprocess
+	if !scanner.Scan() {
+		errStr := "python validator exited or failed to initialize"
+		if scanErr := scanner.Err(); scanErr != nil {
+			errStr = fmt.Sprintf("%s: %v", errStr, scanErr)
+		}
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("%s", errStr)
+	}
+
+	readyLine := scanner.Text()
+	var readyResp map[string]string
+	if err := json.Unmarshal([]byte(readyLine), &readyResp); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("unexpected initialization response from python: %s", readyLine)
+	}
+	if readyResp["status"] != "ready" {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("python validator initialization failed: %s", readyResp["error"])
+	}
+
 	return &SubprocessValidator{
 		cmd:        cmd,
 		stdinPipe:  stdinPipe,
 		stdoutScan: scanner,
 		pythonExe:  pythonExe,
 		scriptPath: scriptPath,
+		stderrW:    stderrW,
 	}, nil
 }
 
@@ -74,7 +102,11 @@ func (v *SubprocessValidator) restart() error {
 		return fmt.Errorf("failed to reopen stdout pipe on restart: %w", err)
 	}
 
-	cmd.Stderr = os.Stderr
+	if v.stderrW != nil {
+		cmd.Stderr = v.stderrW
+	} else {
+		cmd.Stderr = io.Discard
+	}
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to restart python subprocess: %w", err)
@@ -82,6 +114,30 @@ func (v *SubprocessValidator) restart() error {
 
 	scanner := bufio.NewScanner(stdoutPipe)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+
+	// Wait for the ready message from python subprocess on restart
+	if !scanner.Scan() {
+		errStr := "python validator exited or failed to initialize on restart"
+		if scanErr := scanner.Err(); scanErr != nil {
+			errStr = fmt.Sprintf("%s: %v", errStr, scanErr)
+		}
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return fmt.Errorf("%s", errStr)
+	}
+
+	readyLine := scanner.Text()
+	var readyResp map[string]string
+	if err := json.Unmarshal([]byte(readyLine), &readyResp); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return fmt.Errorf("unexpected initialization response from python on restart: %s", readyLine)
+	}
+	if readyResp["status"] != "ready" {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return fmt.Errorf("python validator initialization failed on restart: %s", readyResp["error"])
+	}
 
 	v.cmd = cmd
 	v.stdinPipe = stdinPipe
@@ -152,7 +208,7 @@ func (v *SubprocessValidator) Validate(candidates []types.Candidate) ([]types.Fi
 		return nil, fmt.Errorf("batch ID desync: expected %s, got %s (restart status: %v)", batchID, resp.BatchID, restartErr)
 	}
 
-	var findings []types.Finding
+	findings := []types.Finding{}
 	for _, res := range resp.Results {
 		if res.Valid {
 			findings = append(findings, types.Finding{

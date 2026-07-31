@@ -20,6 +20,9 @@ func TestSubprocessValidator(t *testing.T) {
 	scriptContent := `import sys
 import json
 
+print(json.dumps({"status": "ready"}))
+sys.stdout.flush()
+
 while True:
     line = sys.stdin.readline()
     if not line:
@@ -38,7 +41,7 @@ while True:
 		t.Fatalf("failed to write mock script: %v", err)
 	}
 
-	val, err := NewSubprocessValidator("python3", mockScript)
+	val, err := NewSubprocessValidator("python3", mockScript, nil)
 	if err != nil {
 		t.Fatalf("failed to start subprocess: %v", err)
 	}

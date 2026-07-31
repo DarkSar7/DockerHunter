@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -45,6 +46,16 @@ var (
 		"/components",
 		"/server/data",
 		"/.cache",
+		"/.composer",
+		"/composer/cache",
+		"/.npm",
+		"/.yarn",
+		"/.cargo",
+		"/.gradle",
+		"/.nuget",
+		"/bower_components",
+		"/.pnpm-store",
+		"/build",
 	}
 
 	blackListExtensions = []string{
@@ -67,18 +78,42 @@ var (
 		".wim",
 		".iso",
 		".dmg",
+		".map",
+		".min.js",
+		".min.css",
+		".lock",
+		".woff",
+		".woff2",
+		".eot",
+		".ttf",
+		".otf",
+		".exe",
+		".dll",
+		".so",
+		".dylib",
+		".class",
+		".jar",
+		".war",
+		".pyc",
+		".pyo",
+		".pyd",
+		".db",
+		".sqlite",
+		".sqlite3",
 	}
 )
 
 type Options struct {
-	ImageName string
-	AllTags   bool
-	Format    string
-	Pre       bool
-	MaxTags   int
-	Since     string
-	Latest    int
-	Semver    string
+	ImageName  string
+	AllTags    bool
+	Format     string
+	Pre        bool
+	MaxTags    int
+	Since      string
+	Latest     int
+	Semver     string
+	Context    string
+	OutputPath string
 }
 
 type ScanResults struct {
@@ -91,12 +126,44 @@ type ScanResults struct {
 	Errors          []string        `json:"errors"`
 }
 
-func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *config.RegexRules, val validator.Validator, authManager *auth.AuthManager) (*ScanResults, error) {
+func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *config.RegexRules, val validator.Validator, authManager *auth.AuthManager, errLog io.Writer) (*ScanResults, error) {
 	results := &ScanResults{
 		Repository: opts.ImageName,
 		Findings:   []types.Finding{},
 		Errors:     []string{},
 	}
+
+	// Validate context mode
+	if opts.Context == "" {
+		opts.Context = "none"
+	}
+	if opts.Context != "none" && opts.Context != "files" && opts.Context != "full" {
+		return nil, fmt.Errorf("invalid context mode: %q (must be none, files, or full)", opts.Context)
+	}
+
+	var tempContextDir string
+	if opts.Context != "none" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user home directory: %w", err)
+		}
+		tempContextDir = filepath.Join(home, ".dockerhunter", "temp_context", fmt.Sprintf("scan_%d", time.Now().UnixNano()))
+		if err := os.MkdirAll(tempContextDir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create temporary context directory: %w", err)
+		}
+		defer func() {
+			if tempContextDir != "" {
+				_ = os.RemoveAll(tempContextDir)
+			}
+		}()
+	}
+
+	type pmFile struct {
+		Tag  string
+		File string
+	}
+	var projectMetadataFiles []pmFile
+	var pmMutex sync.Mutex
 
 	// 1. Resolve tags to scan
 	var tagsToScan []string
@@ -268,7 +335,9 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 		if err != nil {
 			errStr := fmt.Sprintf("failed to parse reference %s: %v", fullRef, err)
 			results.ImagesFailed++
-			results.Errors = append(results.Errors, errStr)
+			if errLog != nil {
+				fmt.Fprintf(errLog, "[%s] %s\n", time.Now().Format(time.RFC3339), errStr)
+			}
 			continue
 		}
 		registry := ref.Context().RegistryStr()
@@ -305,7 +374,9 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 			errStr := fmt.Sprintf("failed to download image %s: %v", fullRef, err)
 			fmt.Printf("⚠️  Error: %s\n", errStr)
 			results.ImagesFailed++
-			results.Errors = append(results.Errors, errStr)
+			if errLog != nil {
+				fmt.Fprintf(errLog, "[%s] %s\n", time.Now().Format(time.RFC3339), errStr)
+			}
 			continue
 		}
 
@@ -344,6 +415,23 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 				scanner := bufio.NewScanner(fullReader)
 				scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 
+				baseName := filepath.Base(filePath)
+				isProjectMetadata := false
+				lowerBase := strings.ToLower(baseName)
+				if lowerBase == "composer.json" ||
+					lowerBase == "package.json" ||
+					lowerBase == "go.mod" ||
+					lowerBase == "requirements.txt" ||
+					lowerBase == "cargo.toml" ||
+					lowerBase == "pom.xml" ||
+					lowerBase == "build.gradle" ||
+					lowerBase == "dockerfile" ||
+					lowerBase == "docker-compose.yml" ||
+					lowerBase == "docker-compose.yaml" {
+					isProjectMetadata = true
+				}
+
+				hasCandidates := false
 				lineNum := 0
 				hasSkippedLongLines := false
 				for scanner.Scan() {
@@ -364,16 +452,35 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 						if !seen[key] {
 							seen[key] = true
 							pipeline.Push(c)
+							hasCandidates = true
 						}
 					}
 				}
 
+				if (hasCandidates && opts.Context != "none") || (isProjectMetadata && opts.Context == "full") {
+					tempFilePath := filepath.Join(tempContextDir, tag, filePath)
+					if err := saveFileToTemp(img, path, tempFilePath); err != nil {
+						if errLog != nil {
+							fmt.Fprintf(errLog, "[%s] Error saving temp context file %s: %v\n", time.Now().Format(time.RFC3339), filePath, err)
+						}
+					}
+					if isProjectMetadata && opts.Context == "full" {
+						pmMutex.Lock()
+						projectMetadataFiles = append(projectMetadataFiles, pmFile{Tag: tag, File: filePath})
+						pmMutex.Unlock()
+					}
+				}
+
 				if hasSkippedLongLines {
-					results.Errors = append(results.Errors, fmt.Sprintf("Warning: Some lines in file %s were skipped because they exceeded the 10,000 character limit.", filePath))
+					if errLog != nil {
+						fmt.Fprintf(errLog, "[%s] Warning: Some lines in file %s were skipped because they exceeded the 10,000 character limit.\n", time.Now().Format(time.RFC3339), filePath)
+					}
 				}
 
 				if err := scanner.Err(); err != nil {
-					results.Errors = append(results.Errors, fmt.Sprintf("Error scanning file %s: %v", filePath, err))
+					if errLog != nil {
+						fmt.Fprintf(errLog, "[%s] Error scanning file %s: %v\n", time.Now().Format(time.RFC3339), filePath, err)
+					}
 				}
 
 				return nil
@@ -387,7 +494,143 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 	findings, preAICandidates, pipeErrors, pipelineStats := pipeline.Close()
 	results.Findings = findings
 	results.Pipeline = pipelineStats
-	results.Errors = append(results.Errors, pipeErrors...)
+	if errLog != nil {
+		for _, pipeErr := range pipeErrors {
+			fmt.Fprintf(errLog, "[%s] Pipeline/AI Validator error: %s\n", time.Now().Format(time.RFC3339), pipeErr)
+		}
+	}
+
+	if results.Findings == nil {
+		results.Findings = []types.Finding{}
+	}
+	if results.Errors == nil {
+		results.Errors = []string{}
+	}
+
+	// Base output directory resolution
+	var baseOutputDir string
+	if opts.OutputPath != "" {
+		if filepath.Ext(opts.OutputPath) == ".json" {
+			baseOutputDir = filepath.Dir(opts.OutputPath)
+		} else {
+			baseOutputDir = opts.OutputPath
+		}
+	} else if opts.Context != "none" {
+		baseOutputDir = "output"
+	}
+
+	if opts.Context != "none" {
+		normalizedRepo := strings.ReplaceAll(strings.ReplaceAll(results.Repository, "/", "_"), ":", "_")
+		contextDir := filepath.Join(baseOutputDir, "context", normalizedRepo)
+
+		if err := os.MkdirAll(contextDir, 0755); err != nil {
+			if errLog != nil {
+				fmt.Fprintf(errLog, "[%s] Error creating context directory %s: %v\n", time.Now().Format(time.RFC3339), contextDir, err)
+			}
+		} else {
+			fmt.Printf("Extracting context files (mode: %s) to %s...\n", opts.Context, contextDir)
+
+			exportedFilesMap := make(map[string]bool)
+			var exportedFilesList []string
+
+			// Group findings by Tag and File to write per-file metadata
+			fileFindings := make(map[string][]types.Finding)
+
+			for _, f := range results.Findings {
+				srcTempPath := filepath.Join(tempContextDir, f.Tag, f.File)
+				destPath := filepath.Join(contextDir, f.Tag, f.File)
+
+				key := filepath.Join(f.Tag, f.File)
+				if !exportedFilesMap[key] {
+					if err := copyFile(srcTempPath, destPath); err != nil {
+						if errLog != nil {
+							fmt.Fprintf(errLog, "[%s] Error exporting validated file %s: %v\n", time.Now().Format(time.RFC3339), f.File, err)
+						}
+					} else {
+						exportedFilesMap[key] = true
+						exportedFilesList = append(exportedFilesList, key)
+					}
+				}
+
+				fileFindings[key] = append(fileFindings[key], f)
+			}
+
+			// If mode is "full", copy project metadata files too
+			if opts.Context == "full" {
+				for _, pm := range projectMetadataFiles {
+					srcTempPath := filepath.Join(tempContextDir, pm.Tag, pm.File)
+					destPath := filepath.Join(contextDir, pm.Tag, pm.File)
+
+					key := filepath.Join(pm.Tag, pm.File)
+					if !exportedFilesMap[key] {
+						if err := copyFile(srcTempPath, destPath); err != nil {
+							if errLog != nil {
+								fmt.Fprintf(errLog, "[%s] Error exporting project metadata file %s: %v\n", time.Now().Format(time.RFC3339), pm.File, err)
+							}
+						} else {
+							exportedFilesMap[key] = true
+							exportedFilesList = append(exportedFilesList, key)
+						}
+					}
+				}
+			}
+
+			// Generate per-file findings metadata
+			for fileKey, findings := range fileFindings {
+				type PerFileFinding struct {
+					Line       int    `json:"line"`
+					Variable   string `json:"variable"`
+					Value      string `json:"value"`
+					Rule       string `json:"rule"`
+					Validator  string `json:"validator"`
+					Confidence string `json:"confidence"`
+				}
+
+				var list []PerFileFinding
+				for _, f := range findings {
+					valSource := f.ValidationSource
+					if valSource == "starpii" {
+						valSource = "StarPII"
+					}
+					conf := f.Confidence
+					if conf == "model-validated" {
+						conf = "model-validated"
+					}
+					list = append(list, PerFileFinding{
+						Line:       f.Line,
+						Variable:   f.Variable,
+						Value:      f.Value,
+						Rule:       f.RuleName,
+						Validator:  valSource,
+						Confidence: conf,
+					})
+				}
+
+				metaBytes, err := json.MarshalIndent(list, "", "  ")
+				if err == nil {
+					metaPath := filepath.Join(contextDir, fileKey+".findings.json")
+					_ = os.WriteFile(metaPath, metaBytes, 0644)
+				}
+			}
+
+			// Generate findings.json (global context metadata)
+			type GlobalMetadata struct {
+				Image         string          `json:"image"`
+				ExportedFiles []string        `json:"exported_files"`
+				Findings      []types.Finding `json:"findings"`
+			}
+			globalMeta := GlobalMetadata{
+				Image:         results.Repository,
+				ExportedFiles: exportedFilesList,
+				Findings:      results.Findings,
+			}
+			globalMetaBytes, err := json.MarshalIndent(globalMeta, "", "  ")
+			if err == nil {
+				globalMetaPath := filepath.Join(contextDir, "findings.json")
+				_ = os.WriteFile(globalMetaPath, globalMetaBytes, 0644)
+			}
+		}
+	}
 
 	if opts.Pre {
 		fmt.Println("Writing pre-AI validation candidates to pre.json...")
@@ -407,13 +650,14 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 }
 
 func skipFile(filePath string) bool {
+	lowerPath := strings.ToLower(filePath)
 	for _, bl := range blackListDirs {
-		if strings.Contains(filePath, bl) {
+		if strings.Contains(lowerPath, strings.ToLower(bl)) {
 			return true
 		}
 	}
 	for _, ext := range blackListExtensions {
-		if strings.HasSuffix(filePath, ext) {
+		if strings.HasSuffix(lowerPath, strings.ToLower(ext)) {
 			return true
 		}
 	}
@@ -698,4 +942,49 @@ func isBinaryReader(r io.Reader) (bool, []byte, error) {
 		}
 	}
 	return false, prefix, nil
+}
+
+func saveFileToTemp(img *image.Image, path file.Path, destPath string) error {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return fmt.Errorf("failed to create parent directories: %w", err)
+	}
+
+	reader, err := img.FileContentsFromSquash(path)
+	if err != nil {
+		return fmt.Errorf("failed to open file contents: %w", err)
+	}
+	defer reader.Close()
+
+	writer, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer writer.Close()
+
+	if _, err := io.Copy(writer, reader); err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+	return nil
+}
+
+func copyFile(src, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source: %w", err)
+	}
+	defer srcFile.Close()
+
+	destFile, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create dest: %w", err)
+	}
+	defer destFile.Close()
+
+	if _, err := io.Copy(destFile, srcFile); err != nil {
+		return fmt.Errorf("failed to copy content: %w", err)
+	}
+	return nil
 }
