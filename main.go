@@ -119,23 +119,24 @@ func main() {
 				repoPath = rRepo.Name()
 			}
 			repoPath = strings.ReplaceAll(repoPath, ":", "_") // clean tags
+			repoPath = cleanRepoPath(repoPath)
 
 			var finalResultsPath string
 			var baseOutputDir string
 
+			parentDir := "."
+			fileName := "results.json"
 			if outputPath != "" {
 				if filepath.Ext(outputPath) == ".json" {
-					baseDir := filepath.Dir(outputPath)
-					fileName := filepath.Base(outputPath)
-					baseOutputDir = filepath.Join(baseDir, repoPath)
-					finalResultsPath = filepath.Join(baseOutputDir, fileName)
+					parentDir = filepath.Dir(outputPath)
+					fileName = filepath.Base(outputPath)
 				} else {
-					baseOutputDir = filepath.Join(outputPath, repoPath)
-					finalResultsPath = filepath.Join(baseOutputDir, "results.json")
+					parentDir = outputPath
 				}
-			} else if contextOpt != "none" {
-				baseOutputDir = filepath.Join("output", repoPath)
-				finalResultsPath = filepath.Join(baseOutputDir, "results.json")
+				baseOutputDir = filepath.Join(parentDir, "dockerhunter")
+				finalResultsPath = filepath.Join(baseOutputDir, fileName)
+			} else if contextOpt != "none" || preAICandidates {
+				baseOutputDir = "dockerhunter"
 			}
 
 			opts := scanner.Options{
@@ -256,4 +257,15 @@ func displayResults(w io.Writer, res *scanner.ScanResults, fmtOpt string) {
 			fmt.Fprintf(w, " - %s\n", errStr)
 		}
 	}
+}
+
+func cleanRepoPath(repo string) string {
+	parts := strings.Split(repo, "/")
+	if len(parts) > 1 {
+		first := parts[0]
+		if strings.Contains(first, ".") || strings.Contains(first, ":") {
+			return strings.Join(parts[1:], "/")
+		}
+	}
+	return repo
 }

@@ -509,20 +509,22 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 
 	// Base output directory resolution
 	var baseOutputDir string
-	repoPath := strings.ReplaceAll(results.Repository, ":", "_") // keep slashes, clean tags
-
 	if opts.OutputPath != "" {
+		parentDir := "."
 		if filepath.Ext(opts.OutputPath) == ".json" {
-			baseOutputDir = filepath.Join(filepath.Dir(opts.OutputPath), repoPath)
+			parentDir = filepath.Dir(opts.OutputPath)
 		} else {
-			baseOutputDir = filepath.Join(opts.OutputPath, repoPath)
+			parentDir = opts.OutputPath
 		}
-	} else if opts.Context != "none" {
-		baseOutputDir = filepath.Join("output", repoPath)
+		baseOutputDir = filepath.Join(parentDir, "dockerhunter")
+	} else {
+		baseOutputDir = "dockerhunter"
 	}
 
 	if opts.Context != "none" && len(results.Findings) > 0 {
-		contextDir := filepath.Join(baseOutputDir, "context")
+		repoPath := strings.ReplaceAll(results.Repository, ":", "_") // keep slashes, clean tags
+		repoPath = cleanRepoPath(repoPath)
+		contextDir := filepath.Join(baseOutputDir, repoPath)
 
 		if err := os.MkdirAll(contextDir, 0755); err != nil {
 			if errLog != nil {
@@ -634,15 +636,20 @@ func PerformScan(ctx context.Context, opts Options, cfg *config.Config, rRules *
 	}
 
 	if opts.Pre {
-		fmt.Println("Writing pre-AI validation candidates to pre.json...")
+		prePath := filepath.Join(baseOutputDir, "pre.json")
+		fmt.Printf("Writing pre-AI validation candidates to %s...\n", prePath)
 		preBytes, err := json.MarshalIndent(preAICandidates, "", "  ")
 		if err != nil {
 			fmt.Printf("⚠️  Error marshalling pre-AI candidates: %v\n", err)
 		} else {
-			if err := os.WriteFile("pre.json", preBytes, 0644); err != nil {
-				fmt.Printf("⚠️  Error writing pre.json: %v\n", err)
+			if err := os.MkdirAll(baseOutputDir, 0755); err != nil {
+				fmt.Printf("⚠️  Error creating directory %s: %v\n", baseOutputDir, err)
 			} else {
-				fmt.Println("✓ pre.json written successfully.")
+				if err := os.WriteFile(prePath, preBytes, 0644); err != nil {
+					fmt.Printf("⚠️  Error writing %s: %v\n", prePath, err)
+				} else {
+					fmt.Printf("✓ %s written successfully.\n", prePath)
+				}
 			}
 		}
 	}
@@ -988,4 +995,15 @@ func copyFile(src, dest string) error {
 		return fmt.Errorf("failed to copy content: %w", err)
 	}
 	return nil
+}
+
+func cleanRepoPath(repo string) string {
+	parts := strings.Split(repo, "/")
+	if len(parts) > 1 {
+		first := parts[0]
+		if strings.Contains(first, ".") || strings.Contains(first, ":") {
+			return strings.Join(parts[1:], "/")
+		}
+	}
+	return repo
 }
